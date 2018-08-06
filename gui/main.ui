@@ -474,6 +474,9 @@
    <addaction name="actionVNA_Plots"/>
    <addaction name="actionHomodynePlots"/>
    <addaction name="separator"/>
+   <addaction name="actionVNA_Sweep"/>
+   <addaction name="actionF0_vs_T"/>
+   <addaction name="separator"/>
    <addaction name="actionPlot"/>
    <addaction name="separator"/>
    <addaction name="actionFindResonance"/>
@@ -636,10 +639,10 @@
    </property>
    <property name="icon">
     <iconset>
-     <normaloff>../resources/vna.png</normaloff>../resources/vna.png</iconset>
+     <normaloff>../resources/speed.png</normaloff>../resources/speed.png</iconset>
    </property>
    <property name="text">
-    <string>VNA Plots</string>
+    <string>Speed, sweep and IQ</string>
    </property>
   </action>
   <action name="actionHomodynePlots">
@@ -670,6 +673,24 @@
    </property>
    <property name="text">
     <string>Generate Report</string>
+   </property>
+  </action>
+  <action name="actionVNA_Sweep">
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/vna.png</normaloff>../resources/vna.png</iconset>
+   </property>
+   <property name="text">
+    <string>VNA Sweep</string>
+   </property>
+  </action>
+  <action name="actionF0_vs_T">
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/f0_tem.png</normaloff>../resources/f0_tem.png</iconset>
+   </property>
+   <property name="text">
+    <string>F0 vs Temperature</string>
    </property>
   </action>
  </widget>

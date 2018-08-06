@@ -152,6 +152,9 @@ class MainWindow(QtGui.QMainWindow):
 
         self.ui.show() 
 
+    def plotVnaSweep(self):
+        pass
+
     # --- Plot Sweep, speed and IQ Circle in one figure
     def plotVNA(self,cnt,exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot,nPlots,leg, f0_leg):
         c1, c2, alpha, p = plotPar

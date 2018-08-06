@@ -54,22 +54,47 @@ class dataRed():
         Q = data_fits.field(2)   
         return freqs,I,Q
 
+    def get_sweep_hr(self,path):
+        data_fits = self.get_arrays_fits(path)
+
+        freqs_hr = data_fits.field(0)
+        I_hr = data_fits.field(1)
+        Q_hr = data_fits.field(2)   
+        return freqs_hr,I_hr,Q_hr
+
+    def get_full_vna(self,path):
+        data_fits = self.get_arrays_fits(path)
+
+        freq = data_fits.field(0)
+        a = data_fits.field(1)
+
+        plt.plot(freq,a)
+        plt.show()
+
+        return len(data_fits)                
+
     def smooth_IQ(self,I,Q):    
         sI = savgol_filter(I,51,10)
         sQ = savgol_filter(Q,51,10)
        # fs21 = np.sqrt((fI**2)+(fQ**2))
         return sI,sQ
 
-    def get_vna_sweep_parameters(self,freqs,I,Q):
+    def get_vna_sweep_parameters(self,freqs,I,Q,f0_fits):
         
         mag = np.sqrt((I**2)+(Q**2))
-        f0_ind = np.argmin(mag)
 
+        # Minimum S21
+        f_min = freqs[np.argmin(mag)]
+
+        # FITS frequency
+        f0_ind = np.argmin(np.abs(freqs - (f0_fits)))
         f0 = freqs[f0_ind]
         I0 = I[f0_ind]
         Q0 = Q[f0_ind]
 
         try:
+            #np.diff::::didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+            #np.gradient:::: (In+1 - In-1)/2df
             didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
             dqdf = (Q[f0_ind + 1]-Q[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
             check = True
@@ -78,7 +103,7 @@ class dataRed():
             dqdf = 0
             check = False
 
-        return mag,f0,I0,Q0,didf,dqdf,check
+        return mag,f_min,I0,Q0,didf,dqdf,check
         
     def df(self, I0,Q0,didf,dqdf,I,Q):
         vel = (didf**2)+(dqdf**2)
@@ -132,9 +157,8 @@ class dataRed():
 
             freq, sweep_i, sweep_q = self.get_vna_sweep(os.path.join(path, sweep_path))
 
-            mag,f0,I0,Q0,didf,dqdf,check = self.get_vna_sweep_parameters(freq,sweep_i,sweep_q)
-
             f0_fits = self.get_header(os.path.join(path, path_on_up))[8]
+            mag,f0,I0,Q0,didf,dqdf,check = self.get_vna_sweep_parameters(freq,sweep_i,sweep_q,f0_fits)
 
             psd = self.get_homodyne_psd(os.path.join(path, path_on_up),didf,dqdf,check)
             psd_low = self.get_homodyne_psd(os.path.join(path, path_on_low),didf,dqdf,check)
