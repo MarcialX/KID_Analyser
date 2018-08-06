@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+	<meta charset="UTF-8">
+	<!-- Escalable Responsive -->
+	<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+	<title>Report KIDs Detectors</title>
+	
+	<!-- Hoja de estilos Bootstrap-->
+	<link rel="stylesheet" href="css/bootstrap.min.css">
+	<!-- Hoja de estilos propios-->
+	<link rel="stylesheet" href="css/estilo.css">
+
+</head>
+<body>
+	<div class="backImage"></div>
+	<header>
+		<nav class="navbar navbar-default navbar-custom" role="navigation">
+			<div class="container">
+				<div class="navbar-header">
+					<a href="#" class="navbar-brand">
+						<img src="img/cardiff_icon.jpg" width="80" height="60" title="Cardiff University" alt="Cardiff University">
+					</a>
+				</div>
+			</div>
+		</nav>		
+	</header>
+
+	<div class="jumbotron">
+		<div class="container">
+			<div class="row">
+				<div class="col-sm-8 col-md-6">
+					<h1 class="text-white">KIDs Measurements</h1>
+					<h6 class="text-white lead">Report of the measurements of the KID array in VNA and Homodyne system from AIG lab, got it using the KID Analyser.</h6>
+					<br>
+					<br>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="container">
+		<div class="bg-color-white padding-vertical-3" id="Servicios_Ing">
+			<div class="row">
+				<div class="col-sm-12 align-center padding-vertical-1">
+					<h2 align=center>Summary experiment</h2>
+				</div>
+			</div>
+		</div>
+		<br>
+
+		<div class="container">
+		  <h2>General description</h2>
+		  <p>Data of the experiment</p>            
+		  <table class="table table-hover">
+		    <thead>
+		      <tr>
+		        <th>Parameter</th>
+		        <th>Description</th>
+		      </tr>
+		    </thead>
+		    <tbody>
+		      <tr>
+		        <td>Project</td>
+		        <td>MUSCAT</td>
+		      </tr>
+		      <tr>
+		        <td>Device</td>
+		        <td>INAOE-D3</td>
+		      </tr>
+		      <tr>
+		        <td>Date</td>
+		        <td>03/08/2018</td>
+		      </tr>
+		      <tr>
+		        <td>Array size</td>
+		        <td>20 KIDs</td>
+		      </tr>
+		      <tr>
+		        <td>Type</td>
+		        <td>Dark measure</td>
+		      </tr>
+		    </tbody>
+		  </table>
+		</div>
+	</div>
+
+	<!-- KID 000 -->
+	<div class="container">
+		<h2>KID_K000</h2>
+		<h3>Temperature 100 mK</h3>
+		
+		<h4>Sweep</h4>
+		<center>
+			<figure>
+        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/Sweep_allAtt.png" alt="Sweep_100mk_K000">
+			</figure>
+		</center>
+		<br>
+
+		<h4>IQ Circles</h4>
+		<center>
+			<figure>
+        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/IQ_allAtt.png" alt="IQ_100mk_K000">
+			</figure>
+		</center>
+		<br>
+
+		<h4>Noise</h4>
+		<center>
+			<figure>
+        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/Noise_allAtt.png" alt="Noise_100mk_K000">
+			</figure>
+		</center>
+		<br>
+
+		<!-- Atenuación 58 dB-->
+
+		<h3>Attenuation 58 dB</h3>
+		<div class="container">           
+		  <table class="table table-hover">
+		    <thead>
+		      <tr>
+		        <th>Parameter</th>
+		        <th>Value</th>
+		      </tr>
+		    </thead>
+		    <tbody>
+		      <tr>
+		        <td>Attenaution</td>
+		        <td>58 dB</td>
+		      </tr>
+		      <tr>
+		        <th>Resonance frequency </th>
+		        <th>503.11 MHz</th>
+		      </tr>
+		      <tr>
+		        <td>Q factor</td>
+		        <td>25,000</td>
+		      </tr>
+		      <tr>
+		        <td>didf</td>
+		        <td>3.568e-8</td>
+		      </tr>
+		      <tr>
+		        <td>dqdf</td>
+		        <td>2.879e-8</td>
+		      </tr>
+		    </tbody>
+		  </table>
+			<div class="container">			
+				<h4>Sweep, Speed and IQ circles</h4>
+				<center>
+					<figure>
+		        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/58dB/K000_100_58dB_VNA.png" alt="K000_100_58dB_VNA">
+					</figure>
+				</center>
+				<br>
+
+				<h4>Time Stream</h4>
+				<center>
+					<figure>
+		        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/58dB/K000_100_58dB_TS.png" alt="K000_100_58dB_TS">
+					</figure>
+				</center>
+				<br>
+		</div>
+
+		<!-- Atenuación 56 dB-->
+
+		<h3>Attenuation 56 dB</h3>
+		<div class="container">           
+		  <table class="table table-hover">
+		    <thead>
+		      <tr>
+		        <th>Parameter</th>
+		        <th>Value</th>
+		      </tr>
+		    </thead>
+		    <tbody>
+		      <tr>
+		        <td>Attenaution</td>
+		        <td>56 dB</td>
+		      </tr>
+		      <tr>
+		        <th>Resonance frequency </th>
+		        <th>506.11 MHz</th>
+		      </tr>
+		      <tr>
+		        <td>Q factor</td>
+		        <td>27,635</td>
+		      </tr>
+		      <tr>
+		        <td>didf</td>
+		        <td>2.668e-8</td>
+		      </tr>
+		      <tr>
+		        <td>dqdf</td>
+		        <td>1.889e-8</td>
+		      </tr>
+		    </tbody>
+		  </table>
+			<div class="container">			
+				<h4>Sweep, Speed and IQ circles</h4>
+				<center>
+					<figure>
+		        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/56dB/K000_100_56dB_VNA.png" alt="K000_100_56dB_VNA">
+					</figure>
+				</center>
+				<br>
+
+				<h4>Time Stream</h4>
+				<center>
+					<figure>
+		        		<img src="/home/marcial/Aloysius/20180726_Dark_Data_Auto/KIDS_Plots/KID_K000/100_mK/56dB/K000_100_56dB_TS.png" alt="K000_100_56dB_TS">
+					</figure>
+				</center>
+				<br>
+		</div>
+	</div>	
+
+
+<div class="copyright">
+  <div class="container">
+    <div class="col-md-6">
+      <p>Development by Marcial Becerril (INAOE) in the AIG lab Cardiff University</p>
+    </div>
+  </div>
+</div>
+
+	<script src="js/jquery-3.1.1.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script type='text/javascript'>
+        $(document).ready(function() {
+        
+        var jumboHeight = $('.jumbotron').outerHeight();
+		function parallax(){
+    		var scrolled = $(window).scrollTop();
+    		$('.backImage').css('height', (jumboHeight-scrolled + 92) + 'px');
+		}
+
+		$(window).scroll(function(e){
+   			parallax();
+		});
+        });
+    </script>
+
+</body>
+</html>
