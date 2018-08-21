@@ -10,7 +10,7 @@
     <x>0</x>
     <y>0</y>
     <width>1459</width>
-    <height>725</height>
+    <height>788</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -416,6 +416,55 @@
      </property>
     </widget>
    </widget>
+   <widget class="QFrame" name="controlIQ">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>201</width>
+      <height>361</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="frameShape">
+     <enum>QFrame::StyledPanel</enum>
+    </property>
+    <property name="frameShadow">
+     <enum>QFrame::Plain</enum>
+    </property>
+    <widget class="QTreeWidget" name="treeIQ">
+     <property name="geometry">
+      <rect>
+       <x>5</x>
+       <y>5</y>
+       <width>191</width>
+       <height>351</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <column>
+      <property name="text">
+       <string notr="true">Signals</string>
+      </property>
+     </column>
+    </widget>
+   </widget>
+   <zorder>controlIQ</zorder>
+   <zorder>controlFrame</zorder>
+   <zorder>plotFrame</zorder>
+   <zorder>fileBar</zorder>
+   <zorder>frame</zorder>
+   <zorder>frame_2</zorder>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -464,6 +513,7 @@
    <addaction name="actionLoad"/>
    <addaction name="actionClear"/>
    <addaction name="separator"/>
+   <addaction name="actionCosRay"/>
    <addaction name="actionMAPbar"/>
    <addaction name="separator"/>
    <addaction name="actionTimeStream"/>
@@ -474,12 +524,20 @@
    <addaction name="actionVNA_Plots"/>
    <addaction name="actionHomodynePlots"/>
    <addaction name="separator"/>
-   <addaction name="actionVNA_Sweep"/>
-   <addaction name="actionF0_vs_T"/>
+   <addaction name="actionHR"/>
+   <addaction name="actionIQcircleTS"/>
    <addaction name="separator"/>
    <addaction name="actionPlot"/>
    <addaction name="separator"/>
+   <addaction name="actionVNA_Sweep"/>
+   <addaction name="actionF0_vs_T"/>
+   <addaction name="separator"/>
+   <addaction name="actionAll_time_stream"/>
+   <addaction name="actionIQ_HR"/>
+   <addaction name="actionIQ_LR"/>
+   <addaction name="separator"/>
    <addaction name="actionFindResonance"/>
+   <addaction name="actionQ_Factor"/>
    <addaction name="actionOverdriven"/>
    <addaction name="separator"/>
    <addaction name="actionStadistics"/>
@@ -691,6 +749,81 @@
    </property>
    <property name="text">
     <string>F0 vs Temperature</string>
+   </property>
+  </action>
+  <action name="actionAll_time_stream">
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/all_ts.png</normaloff>../resources/all_ts.png</iconset>
+   </property>
+   <property name="text">
+    <string>All time stream</string>
+   </property>
+  </action>
+  <action name="actionQ_Factor">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/q_factor.png</normaloff>../resources/q_factor.png</iconset>
+   </property>
+   <property name="text">
+    <string>Q Factor</string>
+   </property>
+  </action>
+  <action name="actionHR">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/hd.png</normaloff>../resources/hd.png</iconset>
+   </property>
+   <property name="text">
+    <string>High Resolution</string>
+   </property>
+  </action>
+  <action name="actionIQ_HR">
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/high_res.png</normaloff>../resources/high_res.png</iconset>
+   </property>
+   <property name="text">
+    <string>IQ time stream HR</string>
+   </property>
+  </action>
+  <action name="actionIQ_LR">
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/low_res.png</normaloff>../resources/low_res.png</iconset>
+   </property>
+   <property name="text">
+    <string>IQ Time Stream LR</string>
+   </property>
+  </action>
+  <action name="actionIQcircleTS">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/iq_icon.jpg</normaloff>../resources/iq_icon.jpg</iconset>
+   </property>
+   <property name="text">
+    <string>IQ circle Time Stream</string>
+   </property>
+  </action>
+  <action name="actionCosRay">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>../resources/cosmic.png</normaloff>../resources/cosmic.png</iconset>
+   </property>
+   <property name="text">
+    <string>Cosmic Ray Filter</string>
    </property>
   </action>
  </widget>

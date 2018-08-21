@@ -18,7 +18,7 @@ from MAPx import movAproTrans
 
 from PyQt4 import QtCore, QtGui,uic
 from PyQt4.QtCore import *
-from PyQt4.QtGui import QPalette,QWidget,QFileDialog,QMessageBox, QTreeWidgetItem
+from PyQt4.QtGui import QPalette,QWidget,QFileDialog,QMessageBox, QTreeWidgetItem, QIcon
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,8 +26,12 @@ from astropy.io import fits
 from numpy import fft
 
 from dataRed import dataRed
+from getQ import get_Q_factor
 from enableThread import enableWindow
 from loadThread import loadThread
+
+from detector_peaks import detect_peaks
+from scipy import signal
 
 import matplotlib
 import matplotlib.gridspec as gridspec
@@ -67,7 +71,7 @@ class MainWindow(QtGui.QMainWindow):
         self.ui.setWindowFlags(self.ui.windowFlags() & ~QtCore.Qt.WindowMaximizeButtonHint)
 
         # Adjust frame to be responsive
-        # TODO. It doesn't work correctly, is not responsive as I espect
+        # TODO. It doesn't work correctly, is not responsive as I expect
         x_plot = 175
         y_plot = 200
 
@@ -78,7 +82,7 @@ class MainWindow(QtGui.QMainWindow):
         self.ui.fileBar.resize(int(nx),41)
         self.ui.currentDiry.resize(int(nx)-45,31)
 
-        #   Frame Control
+        # Frame Control
         x_ctrl = 10
         y_ctrl = 10
 
@@ -120,6 +124,15 @@ class MainWindow(QtGui.QMainWindow):
         self.ui.actionVNA_Plots.triggered.connect(self.groupPlotsVNA)
         # Plot time stream I, Q and df
         self.ui.actionHomodynePlots.triggered.connect(self.groupPlotsHomo)
+        # Plot all time stream (before the median)
+        self.ui.actionAll_time_stream.triggered.connect(self.plotAllTS)
+        # Plot I/Q High resolution 
+        self.ui.actionIQ_HR.triggered.connect(self.IQ_HR)
+        # Plot I/Q Low resolution 
+        self.ui.actionIQ_LR.triggered.connect(self.IQ_LR)
+
+        # Plot group 
+        self.ui.actionVNA_Sweep.triggered.connect(self.plotVnaSweep) 
 
         # Save figures for all the directories files
         self.ui.actionCreateImages.triggered.connect(self.saveFigures)
@@ -127,14 +140,22 @@ class MainWindow(QtGui.QMainWindow):
         # Class to reduce data
         self.dataRedtn = dataRed() 
 
+        # Class to get Q factor
+        self.getQ = get_Q_factor()
+
         self.path = []
         self.allPaths = []
         self.allNames = []
         self.allShortNames = []
         self.KIDS = []
         self.nKIDS = 0
-        self.now_nKIDs = 0
 
+        self.flagResize = True
+        self.now = ""
+        self.last = ""
+
+        self.ui.actionCosRay.setChecked(True)
+        
         # Creation of Plot
         self.fig1 = Figure()
         self.addmpl(self.fig1)
@@ -152,11 +173,434 @@ class MainWindow(QtGui.QMainWindow):
 
         self.ui.show() 
 
+    # --- Plot full VNA sweep
     def plotVnaSweep(self):
-        pass
+
+        if len(self.allPaths) == 0:
+            self.messageBox("Warning","Directory not selected")
+            self.ui.setEnabled(True)
+            return
+        self.ui.setEnabled(False)
+        self.messageBox("Info","The VNA sweep will be loaded, it would takes several minutes")
+
+        try:
+            self.fig1.clf()
+        except:
+            pass
+
+        p = ""
+        if self.ui.pointPlot.isChecked():
+            p = "*"
+
+        try:
+            self.f1 = self.fig1.add_subplot(111)
+            for path in self.path:
+                vnaPath = path + "/VNA_Sweeps/"
+                files = os.listdir(vnaPath)
+                for file in files:
+                    name = ""
+                    for l in file:
+                        if l == "_":
+                            name = name + ","
+                        else:
+                            name = name + l  
+
+                    freq, mag = self.dataRedtn.get_full_vna(str(vnaPath + file))
+
+                    self.f1.set_ylabel(r'$S_{21}[V]$')
+                    
+                    if self.ui.ylog.isChecked():
+                        mag_n = 20*np.log10(mag) + 10
+                        self.f1.set_ylabel(r'$S_{21}[dBm]$')
+                        self.f1.plot(freq,mag_n,p+'-',alpha=1,label=r"$"+str(name)+"$")
+                    else:
+                        self.f1.plot(freq,mag,p+'-',alpha=1,label=r"$"+str(name)+"$")
+                    self.f1.set_xlabel(r'$Frequency [Hz]$')
+
+            if self.ui.actionFindResonance.isChecked():
+
+                ind = self.findResonance(mag, 0.02, 100)
+                self.ui.statusText.setText("KIDS = " + str(len(ind)) + " founded")
+
+                for i in ind:
+                    self.f1.axvline(freq[i],color='r',linewidth=0.75)  
+                    self.f1.plot(freq[i],mag[i],'bo')
+                    self.f1.annotate(r"$"+str(freq[i]/1e6)+"MHz$",xy=(freq[i],mag[i]))
+
+            if self.ui.squareLeg.isChecked():
+                self.f1.legend(loc='best')
+
+            self.f1.figure.canvas.draw()
+        except:
+            self.messageBox("Error","Error loading VNA sweep")
+
+        self.ui.setEnabled(True)
+
+        if self.flagResize == False:
+            self.resizeTree(self.flagResize)
+
+    # --- Plot resonance frequencies.
+    #   Created by Salvador Ventura
+    def findResonance(self, mag, mph, mpd):
+        # Try negate mag, i.e. -mag
+        ind = detect_peaks(signal.detrend(mag),valley=True,mph=mph,mpd=mpd)
+
+        return ind 
+
+    def plotAllTS(self):
+        p = ""
+        c1 = ""
+        c2 = ""
+        alpha = 1
+        alpha_on = 0.75
+
+        plotPar = [c1,c2,alpha_on,p]
+
+        paths, shortName, namePlot, headPath = self.kidSelected()
+
+        if len(paths) == 0:
+            self.messageBox("Error","Select at least one KID to plot")    
+            self.ui.setEnabled(True)
+            return
+
+        try:
+            self.fig1.clf()
+        except:
+            pass
+
+        self.f1 = self.fig1.add_subplot(111)
+
+        num = 0
+        for path in paths:
+            try:
+                exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path, shortName[num], headPath[num], "all")                    
+            except Exception as e:
+                self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                self.ui.setEnabled(True)
+                return
+
+            ind_cut_freq = np.where(psd[0]>1000.)[0][0]
+           
+            for i in range(len(psd_low[1])):
+
+                psdON, psdOFF, psdFreqON, psdFreqOFF = [], [], [], []
+
+                psdON = np.concatenate((psd_low[1][i][1:],psd[1][i][ind_cut_freq:-1]),axis=0)
+                psdOFF = np.concatenate((psd_low_OFF[1][i][1:],psd_OFF[1][i][ind_cut_freq:-1]),axis=0)
+                
+                psdFreqON = np.concatenate(( psd_low[0][1:], psd[0][ind_cut_freq:-1]),axis=0)
+                psdFreqOFF = np.concatenate(( psd_low_OFF[0][1:], psd_OFF[0][ind_cut_freq:-1]),axis=0) 
+                
+                psdON = 10*np.log10(psdON)
+                psdOFF = 10*np.log10(psdOFF)
+
+                y = self.f1.semilogx(psdFreqON, psdON, c1+p+'-', alpha=alpha, label=r"$"+"Plot "+str(i)+"$")
+                c2 = y[0].get_color()
+                
+                self.f1.semilogx(psdFreqOFF,psdOFF, color=c2,marker=p, alpha=alpha_on)
+
+                self.f1.set_xlabel(r'$Frequency [Hz]$')
+                self.f1.set_ylabel(r'$PSD \ df[dB]$')
+
+            num += 1
+
+        self.f1.figure.canvas.draw()
+
+        if self.flagResize == False:
+            self.resizeTree(self.flagResize)
+
+    def resizeTree(self, doRes):
+
+        size_x = 201
+        size_y = 361
+
+        size_x_tree = 191
+        size_y_tree = 351
+
+        # Show IQ colors
+        size_x_IQ = 201
+        size_y_IQ = 361
+
+        size_x_IQ_tree = 191
+        size_y_IQ_tree = 351
+
+        if doRes == True:
+            # Resize KID tree to show Color widget
+            self.ui.treeKID.resize(size_x_tree,size_y_tree/2 - 5)
+            self.ui.controlFrame.resize(size_x,size_y/2)
+
+            self.ui.treeIQ.resize(size_x_IQ_tree,size_y_IQ_tree/2 - 10)
+            self.ui.controlIQ.resize(size_x_IQ,size_y_IQ/2 - 5)
+            self.ui.controlIQ.move(10,size_y_IQ/2 + 15)
+
+            self.flagResize = False
+        else:
+            # Resize KID tree to hide Color widget
+            self.ui.treeKID.resize(size_x_tree,size_y_tree)
+            self.ui.controlFrame.resize(size_x,size_y)
+
+            self.ui.treeIQ.resize(size_x_IQ_tree,size_y_IQ_tree)
+            self.ui.controlIQ.resize(size_x_IQ,size_y_IQ)
+            self.ui.controlIQ.move(10,10)
+
+            try:
+                self.clearTree(self.ui.treeIQ, False)
+            except:
+                pass
+
+            self.flagResize = True
+
+    # Plot IQ time stream High Resolution  
+    def plotIQ_HR_TS(self):
+
+        paths, shortName, namePlot, headPath = self.kidSelected()
+
+        if len(paths) == 0:
+            self.messageBox("Error","Select at least one KID to plot")    
+            self.ui.setEnabled(True)
+            return
+
+        create_Tree = False
+
+        if self.flagResize == True:
+            self.resizeTree(self.flagResize)
+            create_Tree = True
+
+        try:
+            self.fig1.clf()
+        except:
+            pass
+
+        num = 0
+        tree = self.ui.treeIQ
+        tree.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
+
+        for path in paths:
+            try:
+                exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path, shortName[num], headPath[num], "all")                    
+            except Exception as e:
+                self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                self.ui.setEnabled(True)
+                return
+
+            # I
+            i_HR_ON = psd[10]
+            i_HR_OFF = psd_OFF[10]
+
+            # Q
+            q_HR_ON = psd[11]
+            q_HR_OFF = psd_OFF[11]
+
+            self.f1 = self.fig1.add_subplot(121)
+
+            number = len(i_HR_ON)
+            cmap = plt.get_cmap('gnuplot')
+            colors = [cmap(i) for i in np.linspace(0, 1, number)]
+
+            print "ON"
+            print "++++"
+            print len(i_HR_ON),len(q_HR_ON)
+            print "++++"
+
+            for i in range(len(i_HR_ON)):
+
+                if create_Tree == False:
+                    item = self.ui.treeIQ.invisibleRootItem()
+                    signal_count = item.childCount()
+                    child = item.child(i)
+                    if child.isSelected():
+                        self.f1.plot(psd[3], i_HR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                        self.f1.plot(psd[3], q_HR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                else:
+
+                    item = QTreeWidgetItem(tree)
+                    item.setFlags(item.flags() | Qt.ItemIsSelectable)
+                    item.setText(0, "Signal HR ON:" + str(i))  
+                    item.setBackground(0, QtGui.QColor(int(255*colors[i][0]),int(255*colors[i][1]),int(255*colors[i][2]),int(255*colors[i][3])))
+                    
+                    self.f1.plot(psd[3], i_HR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                    self.f1.plot(psd[3], q_HR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+
+            self.f1.set_title(r'$High \ Resolution \ ON$')
+            self.f1.set_xlabel(r'$Tiempo [s]$')
+            self.f1.set_ylabel(r'$Amplitude [V]$')
+
+            self.f1 = self.fig1.add_subplot(122)
+
+            number = len(i_HR_OFF)
+            cmap = plt.get_cmap('gnuplot')
+            colors = [cmap(i) for i in np.linspace(0, 1, number)]
+
+            print "OFF"
+            print "++++"
+            print len(i_HR_OFF),len(q_HR_OFF)
+            print "++++"
+
+            for j in range(len(i_HR_OFF)):
+
+                if create_Tree == False:
+                    item = self.ui.treeIQ.invisibleRootItem()
+                    signal_count = item.childCount()
+                    child = item.child(j + len(i_HR_ON))
+                    if child.isSelected():
+                        self.f1.plot(psd[3], i_HR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                        self.f1.plot(psd[3], q_HR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                else:
+
+                    item = QTreeWidgetItem(tree)
+                    item.setFlags(item.flags() | Qt.ItemIsSelectable)
+                    item.setText(0, "Signal HR OFF:" + str(j))  
+                    item.setBackground(0, QtGui.QColor(int(255*colors[j][0]),int(255*colors[j][1]),int(255*colors[j][2]),int(255*colors[j][3])))
+
+                    self.f1.plot(psd[3], i_HR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                    self.f1.plot(psd[3], q_HR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+            
+            self.f1.set_title(r'$High \ Resolution \ OFF$')
+            self.f1.set_xlabel(r'$Tiempo [s]$')
+            self.f1.set_ylabel(r'$Amplitude [V]$')
+
+            num += 1
+
+        self.f1.figure.canvas.draw()
+
+    # Plot IQ time stream Low Resolution  
+    def plotIQ_LR_TS(self):
+
+        paths, shortName, namePlot, headPath = self.kidSelected()
+
+        create_Tree = False
+
+        if self.flagResize == True:
+            self.resizeTree(self.flagResize)
+            create_Tree = True
+
+        try:
+            self.fig1.clf()
+        except:
+            pass
+
+        num = 0
+        tree = self.ui.treeIQ
+        tree.setSelectionMode(QtGui.QAbstractItemView.ExtendedSelection)
+
+        if len(paths) == 0:
+            self.messageBox("Error","Select at least one KID to plot")    
+            self.ui.setEnabled(True)
+            return
+
+        try:
+            self.fig1.clf()
+        except:
+            pass
+
+        for path in paths:
+            try:
+                exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path, shortName[num], headPath[num], "all")                    
+            except Exception as e:
+                self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                self.ui.setEnabled(True)
+                return
+
+            # I
+            i_LR_ON = psd_low[10]
+            i_LR_OFF = psd_low_OFF[10]
+
+            # Q
+            q_LR_ON = psd_low[11]
+            q_LR_OFF = psd_low_OFF[11]
+
+            self.f1 = self.fig1.add_subplot(121)
+
+            number = len(i_LR_ON)
+            cmap = plt.get_cmap('gnuplot')
+            colors = [cmap(i) for i in np.linspace(0, 1, number)]
+
+            print "0N"
+            print "++++"
+            print len(i_LR_ON),len(q_LR_ON)
+            print "++++"
+
+            for i in range(len(i_LR_ON)):
+
+                if create_Tree == False:
+                    item = self.ui.treeIQ.invisibleRootItem()
+                    signal_count = item.childCount()
+                    child = item.child(i)
+                    if child.isSelected():
+                        self.f1.plot(psd_low[3], i_LR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                        self.f1.plot(psd_low[3], q_LR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                else:
+
+                    item = QTreeWidgetItem(tree)
+                    item.setFlags(item.flags() | Qt.ItemIsSelectable)
+                    item.setText(0, "Signal LR ON:" + str(i))  
+                    item.setBackground(0, QtGui.QColor(int(255*colors[i][0]),int(255*colors[i][1]),int(255*colors[i][2]),int(255*colors[i][3])))
+                    
+                    self.f1.plot(psd_low[3], i_LR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+                    self.f1.plot(psd_low[3], q_LR_ON[i], color=colors[i], label=r"$"+"Plot "+str(i)+"$")
+
+            self.f1.set_title(r'$Low \ Resolution \ ON$')
+            self.f1.set_xlabel(r'$Tiempo [s]$')
+            self.f1.set_ylabel(r'$Amplitude [V]$')
+
+            self.f1 = self.fig1.add_subplot(122)
+
+            print "OFF"
+            print "++++"
+            print len(i_LR_OFF),len(q_LR_OFF)
+            print "++++"
+
+            number = len(i_LR_OFF)
+            cmap = plt.get_cmap('gnuplot')
+            colors = [cmap(i) for i in np.linspace(0, 1, number)]
+
+            for j in range(len(i_LR_OFF)):
+
+                if create_Tree == False:
+                    item = self.ui.treeIQ.invisibleRootItem()
+                    signal_count = item.childCount()
+                    child = item.child(j+len(i_LR_ON))
+                    if child.isSelected():
+                        self.f1.plot(psd_low[3], i_LR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                        self.f1.plot(psd_low[3], q_LR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                else:
+
+                    item = QTreeWidgetItem(tree)
+                    item.setFlags(item.flags() | Qt.ItemIsSelectable)
+                    item.setText(0, "Signal LR OFF:" + str(j))  
+                    item.setBackground(0, QtGui.QColor(int(255*colors[j][0]),int(255*colors[j][1]),int(255*colors[j][2]),int(255*colors[j][3])))
+
+                    self.f1.plot(psd_low[3], i_LR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+                    self.f1.plot(psd_low[3], q_LR_OFF[j], color=colors[j], label=r"$"+"Plot "+str(j)+"$")
+            
+            self.f1.set_title(r'$Low \ Resolution \ OFF$')
+            self.f1.set_xlabel(r'$Tiempo [s]$')
+            self.f1.set_ylabel(r'$Amplitude [V]$')
+
+            num += 1
+
+        self.f1.figure.canvas.draw()
+
+    def IQ_HR(self):
+        self.now = "HR"
+        if self.last != self.now:
+            if self.flagResize == False:
+                self.resizeTree(self.flagResize)
+        self.last = self.now
+
+        self.plotIQ_HR_TS()
+
+    def IQ_LR(self):
+        self.now = "LR"
+        if self.last != self.now:
+            if self.flagResize == False:
+                self.resizeTree(self.flagResize)
+        self.last = self.now
+
+        self.plotIQ_LR_TS()
 
     # --- Plot Sweep, speed and IQ Circle in one figure
-    def plotVNA(self,cnt,exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot,nPlots,leg, f0_leg):
+    def plotVNA(self,cnt,exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot,nPlots,leg, f0_leg, fit):
         c1, c2, alpha, p = plotPar
 
         #---S21---
@@ -164,7 +608,21 @@ class MainWindow(QtGui.QMainWindow):
         mag_vna = np.sqrt(sweep_i**2+sweep_q**2)
         mag_vna = 20*np.log10(mag_vna) + 10
 
-        self.f1.plot(freq,mag_vna,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        z = self.f1.plot(freq,mag_vna,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        c2 = z[0].get_color()
+
+        if self.ui.actionHR.isChecked():
+            mag_hr = np.sqrt((sweep_i_hr**2)+(sweep_q_hr**2))
+            mag_hr = 20*np.log10(mag_hr) + 10
+            self.f1.plot(freq_hr,mag_hr,color=c2,dashes=[12, 2],marker="o")
+
+        if self.ui.actionQ_Factor.isChecked():
+            fit_curve_par = fit[0:3]
+            fit_curve = -1*self.getQ.lorentz(freq,*fit_curve_par) + np.max(mag_vna)
+            self.f1.plot(freq, fit_curve,color=c2,dashes=[6, 2])
+            self.f1.plot(fit[2],np.min(fit_curve),"yo")
+            self.f1.annotate(r"$"+str(fit[2]/1e6)+"MHz, Q="+str(fit[4])+"$",xy=(fit[2],np.min(fit_curve)))
+
         if self.ui.actionFindResonance.isChecked() or f0_leg == True:
             self.f1.plot([f0_meas, f0_meas],[np.min(mag_vna),np.max(mag_vna)],'c-')
             self.f1.plot([f0_fits, f0_fits],[np.min(mag_vna),np.max(mag_vna)],'g--')
@@ -188,7 +646,17 @@ class MainWindow(QtGui.QMainWindow):
         dq_df = np.diff(sweep_q)/np.diff(freq)
         speed = np.sqrt(di_df**2 + dq_df**2)
 
-        self.f1.plot(freq[:-1],speed,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        z = self.f1.plot(freq[:-1],speed,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        c3 = z[0].get_color()
+
+        # Speed High Resolution
+        """
+        if self.ui.actionHR.isChecked():
+            di_df_hr = np.diff(sweep_i_hr)/np.diff(freq_hr)
+            dq_df_hr = np.diff(sweep_q_hr)/np.diff(freq_hr)
+            speed_hr = np.sqrt(di_df_hr**2 + dq_df_hr**2)
+            self.f1.plot(freq_hr[:-1],speed_hr,color=c3,dashes=[12, 2],marker="o")"""
+
         if self.ui.actionFindResonance.isChecked() or f0_leg == True:
             self.f1.plot([f0_meas, f0_meas],[np.min(speed),np.max(speed)],'c-')
             self.f1.plot([f0_fits, f0_fits],[np.min(speed),np.max(speed)],'g--')
@@ -198,6 +666,8 @@ class MainWindow(QtGui.QMainWindow):
 
         self.f1.set_xlabel(r'$Frequency [Hz]$')
         self.f1.set_ylabel(r'$Speed[V/Hz]$')
+
+        self.getStad(freq,fit)
         
         if leg == False:    
             xp = freq[cnt*(len(freq)/2)/nPlots + 1]
@@ -209,7 +679,11 @@ class MainWindow(QtGui.QMainWindow):
         #---IQ---
         self.f1 = self.fig1.add_subplot(313)
 
-        self.f1.plot(sweep_i,sweep_q,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        z = self.f1.plot(sweep_i,sweep_q,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        c3 = z[0].get_color()
+
+        if self.ui.actionHR.isChecked():
+            self.f1.plot(sweep_i_hr,sweep_q_hr,color=c3,dashes=[12, 2],marker="o")
 
         self.f1.axis('equal')
         self.f1.set_xlabel(r'$I[V]$')
@@ -226,6 +700,9 @@ class MainWindow(QtGui.QMainWindow):
         #Legend
         if self.ui.squareLeg.isChecked() or leg == True:
             self.f1.legend(loc='best')
+
+        if self.flagResize == False:
+            self.resizeTree(self.flagResize)
 
     # --- Plot time stream high resolution for I, Q and df
     def plotTimeStream(self,cnt,exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot,nPlots, leg):
@@ -281,18 +758,32 @@ class MainWindow(QtGui.QMainWindow):
             self.f1.legend(loc='best')
 
     # --- Plot Noise for ON/OFF resonance frequency
-    def plotNoise(self, psd, psd_OFF, psd_low, psd_low_OFF, namePlot, cnt, plotPar):
-        c1, c2, alpha, p = plotPar
+    def plotNoise(self, psd, psd_OFF, psd_low, psd_low_OFF, namePlot, cnt, plotPar, ctrl, clr):
+        c1, c2, alpha, alpha_on, p = plotPar
 
         self.f1 = self.fig1.add_subplot(111)
-        self.f1.semilogx(psd[0][1:-1],psd[2][1:-1],c1+p+'-',alpha=alpha)
-        self.f1.semilogx(psd_OFF[0][1:-1],psd_OFF[2][1:-1],c2+p+'-',alpha=alpha)
-        self.f1.semilogx(psd_low_OFF[0][1:-1],psd_low_OFF[2][1:-1], c2+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+",OFF$")
-        self.f1.semilogx(psd_low[0][1:-1],psd_low[2][1:-1], c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+",ON$")
-        #self.f1.legend(loc='best')
+
+        ind_cut_freq = np.where(psd[0]>1000.)[0][0]
+        psdON = np.concatenate((psd_low[2][1:],psd[2][ind_cut_freq:-1]),axis=0)
+        psdOFF = np.concatenate((psd_low_OFF[2][1:],psd_OFF[2][ind_cut_freq:-1]),axis=0)
+        
+        psdFreqON = np.concatenate(( psd_low[0][1:], psd[0][ind_cut_freq:-1]),axis=0)
+        psdFreqOFF = np.concatenate(( psd_low_OFF[0][1:], psd_OFF[0][ind_cut_freq:-1]),axis=0) 
+       
+        y = self.f1.semilogx(psdFreqON, psdON, c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
+        
+        if ctrl == False:
+            if self.ui.manyColors.isChecked():
+                c2 = y[0].get_color()
+        else:
+            if clr == True:
+                c2 = y[0].get_color()
+        
+        self.f1.semilogx(psdFreqOFF,psdOFF, color=c2,marker=p, alpha=alpha_on)
+
         self.f1.set_title(r"$Noise \ low \ and \ high \ resolution$")
         self.f1.set_xlabel(r'$frequency [Hz]$')
-        self.f1.set_ylabel(r'$\frac{dBc}{Hz}$')
+        self.f1.set_ylabel(r'$df[dB]$')
         
         xp = psd_low_OFF[0][cnt + 1]
         yp = psd_low_OFF[2][cnt + 1]
@@ -300,7 +791,7 @@ class MainWindow(QtGui.QMainWindow):
         return xp,yp
 
     # --- Plot sweep
-    def plotSweep(self, freq, sweep_i, sweep_q, namePlot, cnt, plotPar, f0_leg, f0_meas, f0_fits, nPlots):
+    def plotSweep(self, freq, sweep_i, sweep_q, namePlot, cnt, plotPar, f0_leg, f0_meas, f0_fits, nPlots, fit):
         c1, c2, alpha, p = plotPar
 
         self.f1 = self.fig1.add_subplot(111)
@@ -308,7 +799,16 @@ class MainWindow(QtGui.QMainWindow):
         mag = np.sqrt(sweep_i**2+sweep_q**2)
         mag = 20*np.log10(mag) + 10
 
-        self.f1.plot(freq,mag,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        z = self.f1.plot(freq,mag,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+
+        if self.ui.actionQ_Factor.isChecked():
+            fit_curve_par = fit[0:3]
+            fit_curve = -1*self.getQ.lorentz(freq,*fit_curve_par) + np.max(mag)
+            c2 = z[0].get_color()
+            self.f1.plot(freq, fit_curve,color=c2,dashes=[6, 2])
+            self.f1.plot(fit[2],np.min(fit_curve),"yo")
+            self.f1.annotate(r"$"+str(fit[2]/1e6)+"MHz, Q="+str(fit[4])+"$",xy=(fit[2],np.min(fit_curve)))
+
         if self.ui.actionFindResonance.isChecked() or f0_leg == True:
             self.f1.plot([f0_meas, f0_meas],[np.min(mag),np.max(mag)],'c-')
             self.f1.plot([f0_fits, f0_fits],[np.min(mag),np.max(mag)],'g--')
@@ -318,6 +818,8 @@ class MainWindow(QtGui.QMainWindow):
 
         self.f1.set_xlabel(r'$Frequency [Hz]$')
         self.f1.set_ylabel(r'$S_{21}[dBm]$')
+
+        self.getStad(freq,fit)
           
         xp = freq[cnt*(len(freq)/2)/nPlots + 1]
         yp = mag[cnt*(len(mag)/2)/nPlots + 1]
@@ -342,13 +844,16 @@ class MainWindow(QtGui.QMainWindow):
         return xp, yp
 
     # --- To plot Time stream/Noise/Sweep/IQ Circle. The figure adapt to the plots selected
-
     def getPlot(self, event):
         self.ui.setEnabled(False)
         self.ui.statusbar.showMessage("Loading Files")
         self.enableW.start()
     
     def plotData(self):
+
+        if self.flagResize == False:
+            self.resizeTree(self.flagResize)
+
         c1 = ""
         c2 = ""
         alpha = 1
@@ -375,18 +880,15 @@ class MainWindow(QtGui.QMainWindow):
             cnt = 0
             for path in paths:
                 try:
-                    exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.loadData(path,shortName[cnt], headPath[cnt], "all")
+                    exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path,shortName[cnt], headPath[cnt], "all")
                 except Exception as e:
                     self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
                     self.ui.setEnabled(True)
                     return
 
                 if self.ui.actionVNA_Plots.isChecked():
-
-                    self.plotVNA(cnt, exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot, len(paths), False, False)
-
+                    self.plotVNA(cnt, exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot, len(paths), False, False, fit)
                 else:
-
                     self.plotTimeStream(cnt, exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, namePlot, len(paths), False)
 
                 self.f1.figure.canvas.draw()
@@ -432,19 +934,22 @@ class MainWindow(QtGui.QMainWindow):
                     try:
                         if flags[0] == True or flags[1] == True:
                             if flags[2] == True or flags[3] == True:
-                                exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.loadData(path,shortName[cnt], headPath[cnt], "all")
+                                exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path,shortName[cnt], headPath[cnt], "all")
                             else:
                                 allData = self.loadData(path,shortName[cnt], headPath[cnt], "homo")
                                 if allData[0] == True:
-                                    psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[4], allData[5], allData[6]
+                                    psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[4], allData[5], allData[6], allData[7]
                                 else:
-                                    psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = allData[4], allData[5], allData[6], allData[7], allData[8], allData[9]
+                                    psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = allData[7], allData[8], allData[9], allData[10], allData[11], allData[12], allData[13]
                         else:
-                            allData = self.loadData(path, shortName[cnt], headPath[cnt], "vna")
-                            if allData[0] == True:
-                                freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[4], allData[5]
+                            if self.ui.actionIQcircleTS.isChecked():
+                                exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(path,shortName[cnt], headPath[cnt], "all")   
                             else:
-                                freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[8], allData[9]
+                                allData = self.loadData(path, shortName[cnt], headPath[cnt], "vna")
+                                if allData[0] == True:
+                                    freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[4], allData[5], allData[6], allData[7], allData[8], allData[9]
+                                else:
+                                    freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[4], allData[5], allData[6], allData[11], allData[12], allData[13]
 
                     except Exception as e:
                         self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
@@ -463,6 +968,9 @@ class MainWindow(QtGui.QMainWindow):
                         c1 = "r"
                         c2 = "b"
                         alpha = 0.75-0.5*cnt/len(paths)
+                        alpha_on = alpha
+                    else:
+                        alpha_on = 0.75
 
                     for nPlot in range(nCheck):
                         xp = 0
@@ -499,14 +1007,25 @@ class MainWindow(QtGui.QMainWindow):
                             checked_0 = False
 
                         elif flags[1] == True and checked_1 == True:
-                            self.f1.semilogx(psd[0][1:-1],psd[2][1:-1],c1+p+'-',alpha=alpha)
-                            self.f1.semilogx(psd_OFF[0][1:-1],psd_OFF[2][1:-1],c2+p+'-',alpha=alpha)
-                            self.f1.semilogx(psd_low_OFF[0][1:-1],psd_low_OFF[2][1:-1], c2+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+",OFF$")
-                            self.f1.semilogx(psd_low[0][1:-1],psd_low[2][1:-1], c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+",ON$")
+
+                            ind_cut_freq = np.where(psd[0]>1000.)[0][0]
+                            psdON = np.concatenate((psd_low[2][1:],psd[2][ind_cut_freq:-1]),axis=0)
+                            psdOFF = np.concatenate((psd_low_OFF[2][1:],psd_OFF[2][ind_cut_freq:-1]),axis=0)
+                            
+                            psdFreqON = np.concatenate(( psd_low[0][1:], psd[0][ind_cut_freq:-1]),axis=0)
+                            psdFreqOFF = np.concatenate(( psd_low_OFF[0][1:], psd_OFF[0][ind_cut_freq:-1]),axis=0) 
+                           
+                            y = self.f1.semilogx(psdFreqON, psdON, c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
+                            
+                            if self.ui.manyColors.isChecked():
+                                c2 = y[0].get_color()
+                            
+                            self.f1.semilogx(psdFreqOFF,psdOFF, color=c2,marker=p, alpha=alpha_on)
+                    
                             #self.f1.legend(loc='best')
                             self.f1.set_title(r"$Noise \ low \ and \ high \ resolution$")
                             self.f1.set_xlabel(r'$frequency [Hz]$')
-                            self.f1.set_ylabel(r'$\frac{dBc}{Hz}$')
+                            self.f1.set_ylabel(r'$PSD \ df[dB]$')
                             
                             xp = psd_low_OFF[0][cnt + 1]
                             yp = psd_low_OFF[2][cnt + 1]
@@ -515,12 +1034,28 @@ class MainWindow(QtGui.QMainWindow):
                         elif flags[2] == True and checked_2 == True:
                             mag = np.sqrt((sweep_i**2)+(sweep_q**2))
                             self.f1.set_ylabel(r'$S_{21}[V]$')
-                            
-                            if self.ui.ylog.isChecked():
-                                mag = 20*np.log10(mag) + 10
-                                self.f1.set_ylabel(r'$S_{21}[dBm]$')
 
-                            self.f1.plot(freq,mag, c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
+                            if self.ui.ylog.isChecked() or self.ui.actionQ_Factor.isChecked():
+                                self.ui.ylog.setChecked(True)
+                                mag = 20*np.log10(mag) + 10
+                                self.f1.set_ylabel(r'$S_{21}[dBm]$')                           
+
+                            z = self.f1.plot(freq,mag, c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
+                            c3 = z[0].get_color()
+
+                            if self.ui.actionHR.isChecked():
+                                mag_hr = np.sqrt((sweep_i_hr**2)+(sweep_q_hr**2))
+                                if self.ui.ylog.isChecked():
+                                    mag_hr = 20*np.log10(mag_hr) + 10
+                                self.f1.plot(freq_hr,mag_hr,color=c3,dashes=[12, 2],marker="o")
+                            
+                            if self.ui.actionQ_Factor.isChecked():
+                                fit_curve_par = fit[0:3]
+                                fit_curve = -1*self.getQ.lorentz(freq,*fit_curve_par) + np.max(mag)
+                                self.f1.plot(freq, fit_curve,color=c3,dashes=[6, 2])
+                                self.f1.plot(fit[2],np.min(fit_curve),"yo")
+                                self.f1.annotate(r"$"+str(fit[2]/1e6)+"MHz, Q="+str(fit[4])+"$",xy=(fit[2],np.min(fit_curve)))
+
                             if self.ui.actionFindResonance.isChecked():
                                 self.f1.plot([f0_meas, f0_meas],[np.min(mag),np.max(mag)],'c-')
                                 self.f1.plot([f0_fits, f0_fits],[np.min(mag),np.max(mag)],'g--')
@@ -531,13 +1066,30 @@ class MainWindow(QtGui.QMainWindow):
                             self.f1.set_title(r"$Sweep$")
                             self.f1.set_xlabel(r'$frequency [Hz]$')
 
+                            self.getStad(freq, fit)
+
                             xp = freq[cnt*(len(mag)/2)/len(paths) + 1]
                             yp = mag[cnt*(len(mag)/2)/len(paths) + 1]
                             checked_2 = False
 
                         elif flags[3] == True and checked_3 == True:
-                            self.f1.plot(sweep_i,sweep_q,c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
-                            #self.f1.legend(loc='best')
+
+                            z = self.f1.plot(sweep_i,sweep_q,c1+p+'-', alpha=alpha, label=r"$"+namePlot[cnt]+"$")
+                            c3 = z[0].get_color()
+
+                            if self.ui.actionHR.isChecked():
+                                self.f1.plot(sweep_i_hr,sweep_q_hr,color=c3,dashes=[12, 2],marker="o")
+
+                            # High and low resolution
+                            if self.ui.actionIQcircleTS.isChecked():
+                                # I
+                                i_LR_ON = psd_low[10]
+                                # Q
+                                q_LR_ON = psd_low[11]
+
+                                for i in range(len(i_LR_ON)):
+                                    self.f1.plot(i_LR_ON[i], q_LR_ON[i],"ro")
+
                             self.f1.axis('equal')
                             self.f1.set_title(r"$IQ \ circle$")
                             self.f1.set_xlabel(r'$I$')
@@ -585,10 +1137,7 @@ class MainWindow(QtGui.QMainWindow):
             return -1
         else:
             self.KIDS = KIDS
-
-            tree    = self.ui.treeKID
-            headerItem  = QTreeWidgetItem()
-            item    = QTreeWidgetItem()
+            tree = self.ui.treeKID
 
             for i in xrange(len(KIDS)):
                 parent = QTreeWidgetItem(tree)
@@ -597,11 +1146,13 @@ class MainWindow(QtGui.QMainWindow):
                 
                 for j in xrange(len(KIDS[i][1])):
                     child = QTreeWidgetItem(parent)
+                    child.setIcon(0, QIcon('./resources/f0_tem.png'))
                     child.setFlags(child.flags() | Qt.ItemIsTristate | Qt.ItemIsUserCheckable)
                     child.setText(0, KIDS[i][1][j][0][16:19] + KIDS[i][1][j][0][20:22])
                     
                     for k in xrange(len(KIDS[i][1][j][1])):
                         grandChild = QTreeWidgetItem(child)
+                        grandChild.setIcon(0, QIcon('./resources/power.png'))
                         grandChild.setFlags(grandChild.flags() | Qt.ItemIsUserCheckable)
                         grandChild.setText(0, KIDS[i][1][j][1][k][16:20])
                         grandChild.setCheckState(0, Qt.Unchecked)  
@@ -664,14 +1215,17 @@ class MainWindow(QtGui.QMainWindow):
 
         return paths, shortName, namePlot, headPath
 
+    def clearKidTree(self,event):
+        self.clearTree(self.ui.treeKID, True)
+
     # --- Clear KID tree. Adapt it from: tcrownson https://gist.github.com/tcrowson/8273931
-    def clearKidTree(self, event):
+    def clearTree(self, tree, full):
 
-        self.ui.currentDiry.setText(" ")
-        self.path = []
-        self.nKIDS = 0
+        if full == True:
+            self.ui.currentDiry.setText(" ")
+            self.path = []
+            self.nKIDS = 0
 
-        tree = self.ui.treeKID
         iterator = QtGui.QTreeWidgetItemIterator(tree, QtGui.QTreeWidgetItemIterator.All)
         while iterator.value():
             iterator.value().takeChildren()
@@ -771,12 +1325,18 @@ class MainWindow(QtGui.QMainWindow):
                 freq = np.load(fullPath + "/" + name + "_freq.npy")
                 sweep_i = np.load(fullPath + "/" + name + "_sweep_i.npy")
                 sweep_q = np.load(fullPath + "/" + name + "_sweep_q.npy")
+                
+                freq_hr = np.load(fullPath + "/" + name + "_freq_hr.npy")
+                sweep_i_hr = np.load(fullPath + "/" + name + "_sweep_i_hr.npy")
+                sweep_q_hr = np.load(fullPath + "/" + name + "_sweep_q_hr.npy")
+
                 f0_meas,f0_fits = np.load(fullPath + "/" + name + "_stat.npy")
+                fit = np.load(fullPath + "/" + name + "_qfactor.npy")
 
                 status = fullPath + " Loaded \n**********"
                 self.ui.statusText.append(status)
 
-                return exists, freq, sweep_i, sweep_q, f0_meas, f0_fits
+                return exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, f0_meas, f0_fits, fit
 
             elif inst == "homo":
                 psd = np.load(fullPath + "/" + name + "_psd.npy")            
@@ -784,46 +1344,65 @@ class MainWindow(QtGui.QMainWindow):
                 psd_OFF = np.load(fullPath + "/" + name + "_psd_OFF.npy")
                 psd_low_OFF = np.load(fullPath + "/" + name + "_psd_low_OFF.npy")
                 f0_meas,f0_fits = np.load(fullPath + "/" + name + "_stat.npy")
+                fit = np.load(fullPath + "/" + name + "_qfactor.npy")
 
                 status = fullPath + " Loaded \n**********"
                 self.ui.statusText.append(status)
 
-                return exists, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas,f0_fits
+                return exists, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas,f0_fits,fit
             
             elif inst == "all":
                 freq = np.load(fullPath + "/" + name + "_freq.npy")
                 sweep_i = np.load(fullPath + "/" + name + "_sweep_i.npy")
                 sweep_q = np.load(fullPath + "/" + name + "_sweep_q.npy")
+
+                freq_hr = np.load(fullPath + "/" + name + "_freq_hr.npy")
+                sweep_i_hr = np.load(fullPath + "/" + name + "_sweep_i_hr.npy")
+                sweep_q_hr = np.load(fullPath + "/" + name + "_sweep_q_hr.npy")
+
                 psd = np.load(fullPath + "/" + name + "_psd.npy")            
                 psd_low = np.load(fullPath + "/" + name + "_psd_low.npy")
                 psd_OFF = np.load(fullPath + "/" + name + "_psd_OFF.npy")
                 psd_low_OFF = np.load(fullPath + "/" + name + "_psd_low_OFF.npy")   
                 f0_meas,f0_fits = np.load(fullPath + "/" + name + "_stat.npy")
+                fit = np.load(fullPath + "/" + name + "_qfactor.npy")
 
                 status = fullPath + " Loaded \n**********"
                 self.ui.statusText.append(status)
 
-                return exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits
+                return exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit
 
         else:
 
             os.system('mkdir ' + fullPath)
 
-            freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.dataRedtn.get_all_data(path) 
+            freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr,  psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.dataRedtn.get_all_data(path,self.ui.actionCosRay.isChecked()) 
 
+            mag = np.sqrt((sweep_i**2)+(sweep_q**2))
+            mag = 20*np.log10(mag) + 10
+
+            fit = self.getQFactor(freq,mag)
+
+            # Low resolution
             np.save(fullPath + "/" + name + "_freq", freq)
             np.save(fullPath + "/" + name + "_sweep_i", sweep_i)
             np.save(fullPath + "/" + name + "_sweep_q", sweep_q)
+            # High resolution
+            np.save(fullPath + "/" + name + "_freq_hr", freq_hr)
+            np.save(fullPath + "/" + name + "_sweep_i_hr", sweep_i_hr)
+            np.save(fullPath + "/" + name + "_sweep_q_hr", sweep_q_hr)
+            
             np.save(fullPath + "/" + name + "_psd", psd)
             np.save(fullPath + "/" + name + "_psd_low", psd_low)
             np.save(fullPath + "/" + name + "_psd_OFF", psd_OFF)
             np.save(fullPath + "/" + name + "_psd_low_OFF", psd_low_OFF)
             np.save(fullPath + "/" + name + "_stat",[f0_meas, f0_fits])
+            np.save(fullPath + "/" + name + "_qfactor", fit)
 
             status = str(psd[7]) + ' Temp=' + str(psd[8]) + ' att= ' + str(psd[9]) + "\n**********"
             self.ui.statusText.append(status)
 
-            return exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits
+            return exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit
 
     # --- Functions of MAP (Moving Approximation Transform) based on the work of PhD Ildar Batyrshin 
     def loadMAP(self, event):
@@ -904,180 +1483,205 @@ class MainWindow(QtGui.QMainWindow):
     # --- Generate all the figures and save them
     def saveFigures(self, event):
         print "Create the Directories"
-        self.create_VNA_Homo_figures(self.path[-1], self.KIDS)
+        
+        self.ui.setEnabled(False)
+        self.messageBox("Info","The program will create the figures for all the files, it would takes several minutes.")
+
+        self.createVNAHomoFigures(self.allPaths, self.KIDS, self.path)
+        
+        self.ui.setEnabled(True)
         print "Directories created!"
 
     # --- Functions to create the tree structure with all the measurements
-    def create_VNA_Homo_figures(self,path,diries):
-        self.ui.setEnabled(False)
-        self.messageBox("Info","The program will create the figures for all the files, it would takes several minutes")
+    def createVNAHomoFigures(self,path,diries,heads):
 
-        kid = ''
-        mainPath = str(path) + "/" + "KIDS_Plots"
-        num = 0
-        nAtt,nAtt_2,nAtt_3 = 0,0,0
-        nTemp = 0
-        if os.path.exists(mainPath) == False:
-            os.system('mkdir ' + mainPath)
+        for head in heads:
+            kid = ''
+            mainPath = str(head) + "/" + "KIDS_Plots"
+            num = 0
+            nAtt,nAtt_2,nAtt_3 = 0,0,0
+            nTemp = 0
+            if os.path.exists(mainPath) == False:
+                os.system('mkdir ' + mainPath)
 
-        for i in xrange(len(diries)):
-            s_i = 0
-            for kidname in diries[i][0]:
-                s_i = s_i + 1
-                if kidname == "_":
-                    break
+            for i in xrange(len(diries)):
+                s_i = 0
+                for kidname in diries[i][0]:
+                    s_i = s_i + 1
+                    if kidname == "_":
+                        break
 
-            kid = mainPath + "/" + diries[i][0][s_i:]
-            if os.path.exists(kid) == False:
-                os.system('mkdir ' + kid)
-         
-            tem = ""
-            for j in xrange(len(diries[i][1])):
+                kid = mainPath + "/" + diries[i][0][s_i:]
+                if os.path.exists(kid) == False:
+                    os.system('mkdir ' + kid)
+             
+                tem = ""
+                for j in xrange(len(diries[i][1])):
 
-                temp = kid + "/" + diries[i][1][j][0][16:]                
-                if os.path.exists(temp) == False:
-                    os.system('mkdir ' + temp)
+                    temp = kid + "/" + diries[i][1][j][0][16:]                
+                    if os.path.exists(temp) == False:
+                        os.system('mkdir ' + temp)
 
-                att = ""
-                for k in xrange(len(diries[i][1][j][1])):
+                    att = ""
+                    for k in xrange(len(diries[i][1][j][1])):
 
-                    att = temp + "/" + diries[i][1][j][1][k][16:20] 
-                    if os.path.exists(att) == False:
-                        os.system('mkdir ' + att)
+                        att = temp + "/" + diries[i][1][j][1][k][16:20] 
+                        if os.path.exists(att) == False:
+                            os.system('mkdir ' + att)
 
-                    p = ""
-                    c1 = "r"
-                    c2 = "b"
+                        p = ""
+                        c1 = "r"
+                        c2 = "b"
+                        alpha = 1
+                        alpha_on = 1
+
+                        plotPar = [c1,c2,alpha,p]
+
+                        try:
+                            self.fig1.clf()
+                        except:
+                            pass
+
+                        try:
+                            exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(str(path[num]),self.allNames[num], self.allHeads[num], "all")                    
+                        except Exception as e:
+                            self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                            self.ui.setEnabled(True)
+                            return
+
+                        self.plotVNA(num, exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, self.allShortNames, 1, True, True, fit)                       
+                        self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_VNA.png")
+
+                        self.fig1.clf()
+
+                        self.plotTimeStream(num, exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, self.allShortNames, 1, True)
+                        self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_TS.png")
+
+                        self.fig1.clf()
+
+                        self.plotNoise(psd, psd_OFF, psd_low, psd_low_OFF, self.allShortNames, 1, [c1,c2,1,1,p], True, False)
+                        self.f1.legend(loc='best')
+                        self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_noise.png")
+
+                        self.fig1.clf()
+
+                        self.plotSweep(freq, sweep_i, sweep_q, self.allShortNames, 1, plotPar, True, f0_meas, f0_fits, 1, fit)
+                        self.f1.legend(loc='best')
+                        self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_sweep.png")                    
+
+                        self.fig1.clf()
+
+                        self.plotIQ(sweep_i, sweep_q, self.allShortNames, 1, plotPar, 1)
+                        self.f1.legend(loc='best')
+                        self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_iq.png")                   
+
+                        num = num + 1
+
+                    self.fig1.clf()
+
+                    ant = nAtt
+                    c1 = ""
+                    c2 = ""
                     alpha = 1
 
                     plotPar = [c1,c2,alpha,p]
-
-                    try:
-                        self.fig1.clf()
-                    except:
-                        pass
-
-                    try:
-                        exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.loadData(path,self.allNames[num], self.allHeads[num], "all")                    
-                    except Exception as e:
-                        self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
-                        self.ui.setEnabled(True)
-                        return
-
-                    self.plotVNA(num, exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, self.allShortNames, 1, True, True)                       
-                    self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_VNA.png")
-
-                    self.fig1.clf()
-
-                    self.plotTimeStream(num, exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, plotPar, path, self.allShortNames, 1, True)
-                    self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_TS.png")
-
-                    self.fig1.clf()
-
-                    self.plotNoise(psd, psd_OFF, psd_low, psd_low_OFF, self.allShortNames, 1, plotPar)
-                    self.f1.legend(loc='best')
-                    self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_noise.png")
-
-                    self.fig1.clf()
-
-                    self.plotSweep(freq, sweep_i, sweep_q, self.allShortNames, 1, plotPar, True, f0_meas, f0_fits, 1)
-                    self.f1.legend(loc='best')
-                    self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_sweep.png")                    
-
-                    self.fig1.clf()
-
-                    self.plotIQ(sweep_i, sweep_q, self.allShortNames, 1, plotPar, 1)
-                    self.f1.legend(loc='best')
-                    self.fig1.savefig(str(att) + '/' + self.allNames[num] + "_iq.png")                   
-
-                    num = num + 1
-
-                self.fig1.clf()
-
-                ant = nAtt
-                c1 = ""
-                c2 = ""
-                alpha = 1
-
-                plotPar = [c1,c2,alpha,p]
-                
-                for eachAtt in xrange(len(diries[i][1][j][1])):
-                    try:
-                        allData = self.loadData(path,self.allNames[nAtt],self.allHeads[nAtt], "vna")
-                        if allData[0] == True:
-                            freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[4], allData[5]
-                        else:
-                            freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[8], allData[9]
-                    except Exception as e:
-                        self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
-                        self.ui.setEnabled(True)
-                        return                    
-
-                    self.plotSweep(freq, sweep_i, sweep_q, self.allShortNames[ant:ant + len(diries[i][1][j][1])], eachAtt, plotPar, False, f0_meas, f0_fits, len(diries[i][1][j][1]))
-                    self.f1.legend(loc='best')
                     
-                    nAtt += 1
+                    for eachAtt in xrange(len(diries[i][1][j][1])):
+                        try:
+                            allData = self.loadData(str(path[nAtt]),self.allNames[nAtt],self.allHeads[nAtt], "vna")
+                            if allData[0] == True:
+                                freq, sweep_i, sweep_q, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[7], allData[8], allData[9]
+                            else:
+                                freq, sweep_i, sweep_q, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[11], allData[12], allData[13]
+                        except Exception as e:
+                            self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                            self.ui.setEnabled(True)
+                            return                    
 
-                self.fig1.savefig(str(temp) + '/' + "Sweep_allAtt.png")
+                        self.plotSweep(freq, sweep_i, sweep_q, self.allShortNames[ant:ant + len(diries[i][1][j][1])], eachAtt, plotPar, False, f0_meas, f0_fits, len(diries[i][1][j][1]),fit)
+                        self.f1.legend(loc='best')
+                        
+                        nAtt += 1
 
-                self.fig1.clf()
+                    self.fig1.savefig(str(temp) + '/' + "Sweep_allAtt.png")
 
-                ant_2 = nAtt_2
-                p = "*"
-                c1 = ""
-                c2 = ""
-                alpha = 1
+                    self.fig1.clf()
 
-                plotPar = [c1,c2,alpha,p]
-                
-                for eachAtt in xrange(len(diries[i][1][j][1])):
-                    try:
-                        allData = self.loadData(path,self.allNames[nAtt_2],self.allHeads[nAtt_2], "vna")
-                        if allData[0] == True:
-                            freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[4], allData[5]
-                        else:
-                            freq, sweep_i, sweep_q, f0_meas, f0_fits = allData[1], allData[2], allData[3], allData[8], allData[9]
-                    except Exception as e:
-                        self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
-                        self.ui.setEnabled(True)
-                        return                    
+                    ant_2 = nAtt_2
+                    p = "*"
+                    c1 = ""
+                    c2 = ""
+                    alpha = 1
 
-                    self.plotIQ(sweep_i, sweep_q, self.allShortNames[ant_2:ant_2 + len(diries[i][1][j][1])], eachAtt, plotPar, len(diries[i][1][j][1]))
-                    self.f1.legend(loc='best')
+                    plotPar = [c1,c2,alpha,p]
                     
-                    nAtt_2 += 1
+                    for eachAtt in xrange(len(diries[i][1][j][1])):
+                        try:
+                            allData = self.loadData(str(path[nAtt_2]),self.allNames[nAtt_2],self.allHeads[nAtt_2], "vna")
+                            if allData[0] == True:
+                                freq, sweep_i, sweep_q, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[7], allData[8], allData[9]
+                            else:
+                                freq, sweep_i, sweep_q, f0_meas, f0_fits, fit = allData[1], allData[2], allData[3], allData[11], allData[12], allData[13]
+                        except Exception as e:
+                            self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                            self.ui.setEnabled(True)
+                            return                    
 
-                self.fig1.savefig(str(temp) + '/' + "IQ_allAtt.png")
+                        self.plotIQ(sweep_i, sweep_q, self.allShortNames[ant_2:ant_2 + len(diries[i][1][j][1])], eachAtt, plotPar, len(diries[i][1][j][1]))
+                        self.f1.legend(loc='best')
+                        
+                        nAtt_2 += 1
 
-                self.fig1.clf()
+                    self.fig1.savefig(str(temp) + '/' + "IQ_allAtt.png")
 
-                ant_3 = nAtt_3
-                p = ""
-                c1 = "r"
-                c2 = "b"
+                    self.fig1.clf()
 
-                plotPar = [c1,c2,alpha,p]
-                
-                for eachAtt in xrange(len(diries[i][1][j][1])):                    
-                    alpha = 0.75-0.5*eachAtt/len(diries[i][1][j][1])
-                    plotPar[2] = alpha
-                    try:
-                        exists, freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits = self.loadData(path,self.allNames[nAtt_3],self.allHeads[nAtt_3], "all")
-                    except Exception as e:
-                        self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
-                        self.ui.setEnabled(True)
-                        return                    
+                    ant_3 = nAtt_3
+                    p = ""
+                    c1 = ""
+                    c2 = ""
 
-                    self.plotNoise(psd, psd_OFF, psd_low, psd_low_OFF, self.allShortNames[ant_3:ant_3 + len(diries[i][1][j][1])], eachAtt, plotPar)
-                    self.f1.legend(loc='best')
-                    nAtt_3 += 1
+                    plotPar = [c1,c2,1,0.75,p]
+                    
+                    for eachAtt in xrange(len(diries[i][1][j][1])):                    
+                        try:
+                            exists, freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr, psd, psd_low, psd_OFF, psd_low_OFF, f0_meas, f0_fits, fit = self.loadData(str(path[nAtt_3]),self.allNames[nAtt_3],self.allHeads[nAtt_3], "all")
+                        except Exception as e:
+                            self.messageBox("Error","Error trying to open files, maybe files are missing\n"+str(e))    
+                            self.ui.setEnabled(True)
+                            return                    
 
-                self.fig1.savefig(str(temp) + '/' + "Noise_allAtt.png")
+                        self.plotNoise(psd, psd_OFF, psd_low, psd_low_OFF, self.allShortNames[ant_3:ant_3 + len(diries[i][1][j][1])], eachAtt, plotPar, True, True)
+                        self.f1.legend(loc='best')
+                        nAtt_3 += 1
 
-                nTemp += 1
-                ant,ant_2,ant_3= 0,0,0
+                    self.fig1.savefig(str(temp) + '/' + "Noise_allAtt.png")
 
-        self.ui.setEnabled(True)
+                    nTemp += 1
+                    ant,ant_2,ant_3= 0,0,0
+
+    # --- Get basic information
+    def getStad(self, freq, fit):
+        fmin = np.min(freq)
+        fmax = np.max(freq)
+        bw = fmax - fmin
+        res = freq[1] - freq[0]
+
+        data = "Fmin = " + str(fmin/1e6) + "MHz\n" + "Fmax = " + str(fmax/1e6) + "MHz\n" + "BW = " + str(bw/1e6) + "MHz\n" + "Res = " + str(res) + "Hz"
+
+        fit = "Q = " + str(fit[4]) + "\nF0 = " + str(fit[2]/1e6) + "MHz\nBW_Q = " + str(fit[3]) + "MHz"
+
+        self.ui.statusText.append("**********")
+        self.ui.statusText.append(data)
+        self.ui.statusText.append(fit)
+        self.ui.statusText.append("**********")
+
+
+    def getQFactor(self, freq, mag):
+        mag = np.abs(np.max(mag) - mag)
+        I, G, f0_fit, bw_fit, q_fit = self.getQ.fit(freq,mag)
+
+        return I, G, f0_fit, bw_fit, q_fit
 
     # --- Message window
     def messageBox(self, title, msg):

@@ -8,16 +8,20 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from numpy import fft
+
 import math
 import glob
 import os
+import sys
+
 from astropy.io import fits
 from astropy.visualization import astropy_mpl_style
 plt.style.use(astropy_mpl_style)
 from astropy.utils.data import get_pkg_data_filename
 from astropy.io import fits
+
 from scipy import signal
-import sys
+from removeCR import remCosRay
 
 class dataRed():
 
@@ -59,19 +63,20 @@ class dataRed():
 
         freqs_hr = data_fits.field(0)
         I_hr = data_fits.field(1)
-        Q_hr = data_fits.field(2)   
+        Q_hr = data_fits.field(2)
+
         return freqs_hr,I_hr,Q_hr
 
     def get_full_vna(self,path):
         data_fits = self.get_arrays_fits(path)
 
         freq = data_fits.field(0)
-        a = data_fits.field(1)
+        I = data_fits.field(1)
+        Q = data_fits.field(2)
 
-        plt.plot(freq,a)
-        plt.show()
+        mag = np.sqrt(I**2 + Q**2)
 
-        return len(data_fits)                
+        return freq, mag               
 
     def smooth_IQ(self,I,Q):    
         sI = savgol_filter(I,51,10)
@@ -88,6 +93,7 @@ class dataRed():
 
         # FITS frequency
         f0_ind = np.argmin(np.abs(freqs - (f0_fits)))
+
         f0 = freqs[f0_ind]
         I0 = I[f0_ind]
         Q0 = Q[f0_ind]
@@ -126,7 +132,7 @@ class dataRed():
 
         return freqs, psd, psd_mean
 
-    def get_homodyne_psd(self, path, didf, dqdf, check):
+    def get_homodyne_psd(self, path, didf, dqdf, check, sigma, cosRayFlag):
 
         I0,Q0,Fs,actual_temp,kid_number,input_att,didf_p,dqdf_p,f0 = self.get_header(path)
 
@@ -134,38 +140,70 @@ class dataRed():
             didf = didf_p
             dqdf = dqdf_p
 
-        I,Q = self.get_IQ_data_homo(path)
+        step = 1/Fs
+        I_old,Q_old = self.get_IQ_data_homo(path)
+        
+        time = np.arange(0,step*len(I_old[0]),step)
+        
+        I = []
+        Q = []
+
+        if cosRayFlag == True:
+            # Remove Cosmic Ray
+            cos_ray = remCosRay()
+            for i in range(len(I_old)): 
+
+                time,n_I,flagRm_I = cos_ray.findCosmicRay(time,I_old[i],sigma)
+                
+                time,n_Q,flagRm_Q = cos_ray.findCosmicRay(time,Q_old[i],sigma)
+
+                if flagRm_I == False and flagRm_Q == False:
+                    I.append(n_I)
+                    Q.append(n_Q)  
+
+        #print "**Rayos cósmicos***"
+        #print len(I_old) - len(I)
+        #print "**********************"
+
+        else:
+            I = I_old
+            Q = Q_old
+
         df,vel = self.df(I0,Q0,didf,dqdf,I,Q)
 
         freqs, psd, psd_mean = self.psd(df,Fs)
 
-        step = 1/Fs
         df_avg = np.average(df,axis=0)
         I_avg = np.average(I,axis=0)
         Q_avg = np.average(Q,axis=0)
         time = np.arange(0,step*len(I_avg),step)
 
-        return freqs, psd, psd_mean, time, I_avg, Q_avg, df_avg, kid_number, actual_temp, input_att
+        return freqs, psd, psd_mean, time, I_avg, Q_avg, df_avg, kid_number, actual_temp, input_att, I,Q
 
-    def get_all_data(self, path):
+    def get_all_data(self, path, cosRayFlag):
 
         try:
-            sweep_path, ONTemp, OFFTemp = self.get_each_path(path) 
+            sweep_path, sweep_hr_path, ONTemp, OFFTemp = self.get_each_path(path) 
             
             path_off_up, path_off_low = self.split_array(OFFTemp)
             path_on_up, path_on_low = self.split_array(ONTemp)
 
             freq, sweep_i, sweep_q = self.get_vna_sweep(os.path.join(path, sweep_path))
+            freq_hr, sweep_i_hr, sweep_q_hr = self.get_vna_sweep(os.path.join(path, sweep_hr_path))
 
             f0_fits = self.get_header(os.path.join(path, path_on_up))[8]
             mag,f0,I0,Q0,didf,dqdf,check = self.get_vna_sweep_parameters(freq,sweep_i,sweep_q,f0_fits)
 
-            psd = self.get_homodyne_psd(os.path.join(path, path_on_up),didf,dqdf,check)
-            psd_low = self.get_homodyne_psd(os.path.join(path, path_on_low),didf,dqdf,check)
-            psd_OFF = self.get_homodyne_psd(os.path.join(path, path_off_up),didf,dqdf,check)
-            psd_low_OFF = self.get_homodyne_psd(os.path.join(path, path_off_low),didf,dqdf,check)
+            print "PSD HIGH ON"
+            psd = self.get_homodyne_psd(os.path.join(path, path_on_up),didf,dqdf,check,5,cosRayFlag)
+            print "PSD LOW ON"
+            psd_low = self.get_homodyne_psd(os.path.join(path, path_on_low),didf,dqdf,check,5,cosRayFlag)
+            print "PSD HIGH OFF"
+            psd_OFF = self.get_homodyne_psd(os.path.join(path, path_off_up),didf,dqdf,check,5,cosRayFlag)
+            print "PSD LOW OFF"
+            psd_low_OFF = self.get_homodyne_psd(os.path.join(path, path_off_low),didf,dqdf,check,5,cosRayFlag)
             
-            return freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0, f0_fits                
+            return freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr,  psd, psd_low, psd_OFF, psd_low_OFF, f0, f0_fits                
         except:
             return -1
 
@@ -217,6 +255,8 @@ class dataRed():
             k = i.lower()
             if k == "sweep.fits":
                 sweep_path = i
+            elif k == "sweep_hr.fits":
+                sweep_hr_path = i 
             else:
                 freq = ''
                 mode = ''
@@ -240,4 +280,4 @@ class dataRed():
                 elif mode == "off":
                     OFFTemp.append([i,int(freq),int(n)])
 
-        return sweep_path, ONTemp, OFFTemp
+        return sweep_path, sweep_hr_path, ONTemp, OFFTemp
