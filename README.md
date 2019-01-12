@@ -10,7 +10,7 @@ KID Analyser code runs under Python 2.7 or less. The Python libraries need it ar
 ```
 sudo apt-get install python-qt4
 ```
-* Astropy version 2.0.11. To read FITS files. The version 2.0.11 is last able to run with Python 2.7. Install it with pip:
+* Astropy version 2.0.11. To read FITS files. The version 2.0.11 is the last able to run with Python 2.7. Install it with pip:
 ```
 pip install astropy==2.0.11
 ```
