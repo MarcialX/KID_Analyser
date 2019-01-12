@@ -26,7 +26,7 @@ sudo ./install.sh
 ```
 ## Run
 
-Run the index.py, it contains the base of the whole
+To run the KID Analyser, execute the index.py file:
 ```
 python index.py
 ```
