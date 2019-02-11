@@ -1,5 +1,5 @@
 # Ignore all .pyc files
 *.pyc
-./Images
+Images/
 kids_noise_array.py
 kids_noise_single_kid.py
