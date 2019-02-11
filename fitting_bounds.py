@@ -2,7 +2,7 @@
 """
 Resonator/KID fitting routines.
 
-Contains rountines for fitting to resonance curves, noise data and pulse decays
+Contains routines for fitting to resonance curves, noise data and pulse decays
 
 Taken from Pete Barry code
 """
@@ -76,7 +76,7 @@ class fitting_resonators():
         J  = np.exp(2j*np.pi/3)
         Jc = 1/J
         u  = np.empty(2, np.complex128)
-        
+
         z0=b/3/a
         a2,b2 = a*a,b*b
         p = -b2/3/a2 + c/a; q = (b/27*(2*b2/a2 - 9*c/a) + d)/a
@@ -143,7 +143,7 @@ class fitting_resonators():
         y = roots[np.where(abs(roots.imag) < 1e-5)].real
         #print roots.shape
         #print roots
-        #print 
+        #print
         #print
         #print y.shape
         #print y
@@ -188,7 +188,7 @@ class fitting_resonators():
         #weights = sqrt(abss21)
         #weights = 1./sqrt(abss21)
         weights = np.ones_like(freq)
-        
+
         if nonlinear==True:
             init = np.array([freq[np.argmin(abss21)], approxQr, approxQr*2, 1.0, abss21.max(), 0.01])
             #param_bounds = np.array([[0.,0.,0.,0.,0.,0.],[np.inf,np.inf,np.inf,np.inf,np.inf,np.around(4*np.sqrt(3)/9, 3)]])
@@ -197,13 +197,13 @@ class fitting_resonators():
             else:
     			param_bounds = np.array([np.array([1e-9]*2+[-np.inf]*2+[1e-9]*2), np.array([np.inf]*5 + [np.around(4*np.sqrt(3)/9, 6)] )]) # set the parameter bounds
     			#param_bounds = np.array([np.array([0.]*6), np.array([np.inf]*6)] ) # set the parameter bounds
-            
+
             for p in range(6):
     			if init[p] < param_bounds[0][p]:
     				init[p] = param_bounds[0][p]
     			elif init[p] > param_bounds[1][p]:
     				init[p] = param_bounds[1][p]
-    				
+
             s21fitp, s21cov = curve_fit(self.s21skewed_nonlinear, freq, abss21, p0=init, bounds = param_bounds,sigma=weights)
             #s21fitp, s21cov = curve_fit(s21skewed_nonlinear, freq, abs(s21), p0=init, bounds = param_bounds,sigma=weights)
 

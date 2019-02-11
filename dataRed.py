@@ -30,34 +30,46 @@ class dataRed():
         data_fits = fits.getdata(path, ext=0)
         return data_fits
 
-    def get_header(self, path):
+    def get_header_time_stream(self, path):
         hdul = fits.open(path)
         hdr = hdul[1].header
 
         I0 = hdr['IF0']
         Q0 = hdr['QF0']
-    
+
         dqdf = hdr['DQDF']
         didf = hdr['DIDF']
-        
+
         Fs = hdr['SAMPLERA']
-        
+
         actual_temp = hdr['SAMPLETE']
         kid_number = hdr['TONE']
         input_att = hdr['INPUTATT']
 
-        f0 = hdr['SYNTHFRE']
+        f0 = hdr["SYNTHFRE"]
 
         return I0,Q0,Fs,actual_temp,kid_number,input_att,didf,dqdf,f0
+
+    def get_params_from_header(self, path):
+        hdul = fits.open(path)
+        hdr = hdul[1].header
+
+        f0 = hdr["F0FOUND"]
+        actual_temp = hdr['SAMPLETE']
+        kid_number = hdr['TONE']
+        input_att = hdr['INPUTATT']
+
+        return f0,actual_temp,kid_number,input_att
 
     def get_vna_sweep(self,path):
         data_fits = self.get_arrays_fits(path)
 
         freqs = data_fits.field(0)
         I = data_fits.field(1)
-        Q = data_fits.field(2)   
+        Q = data_fits.field(2)
         return freqs,I,Q
 
+    """
     def get_sweep_hr(self,path):
         data_fits = self.get_arrays_fits(path)
 
@@ -66,6 +78,7 @@ class dataRed():
         Q_hr = data_fits.field(2)
 
         return freqs_hr,I_hr,Q_hr
+    """
 
     def get_full_vna(self,path):
         data_fits = self.get_arrays_fits(path)
@@ -76,20 +89,15 @@ class dataRed():
 
         mag = np.sqrt(I**2 + Q**2)
 
-        return freq, mag, I, Q            
+        return freq, mag, I, Q
 
-    def smooth_IQ(self,I,Q):    
+    def smooth_IQ(self,I,Q):
         sI = savgol_filter(I,51,10)
         sQ = savgol_filter(Q,51,10)
        # fs21 = np.sqrt((fI**2)+(fQ**2))
         return sI,sQ
 
     def get_vna_sweep_parameters(self,freqs,I,Q,f0_fits):
-        
-        mag = np.sqrt((I**2)+(Q**2))
-
-        # Minimum S21
-        f_min = freqs[np.argmin(mag)]
 
         # FITS frequency
         f0_ind = np.argmin(np.abs(freqs - (f0_fits)))
@@ -109,8 +117,8 @@ class dataRed():
             dqdf = 0
             check = False
 
-        return mag,f_min,I0,Q0,didf,dqdf,check
-        
+        return I0,Q0,didf,dqdf,check
+
     def df(self, I0,Q0,didf,dqdf,I,Q):
         vel = (didf**2)+(dqdf**2)
         df = [  ( ( I0-I[i] ) * didf) + ( ( Q0-Q[i]) * dqdf ) / vel for i in range(len(I))  ]
@@ -118,11 +126,11 @@ class dataRed():
 
     def get_IQ_data_homo(self, path):
         data_fits = self.get_arrays_fits(path)
-        
-        I = [data_fits.field(2*i) for i in range(len(data_fits[0])/2)]     
-        Q = [data_fits.field(2*i+1) for i in range(len(data_fits[0])/2)]  
 
-        return I,Q    
+        I = [data_fits.field(2*i) for i in range(len(data_fits[0])/2)]
+        Q = [data_fits.field(2*i+1) for i in range(len(data_fits[0])/2)]
+
+        return I,Q
 
     def psd(self, df, Fs,isMean):
         psd = [signal.periodogram(df[i], Fs)[1]  for i in range(len(df))]
@@ -137,7 +145,7 @@ class dataRed():
 
     def get_homodyne_psd(self, path, didf, dqdf, check, sigma, cosRayFlag):
 
-        I0,Q0,Fs,actual_temp,kid_number,input_att,didf_p,dqdf_p,f0 = self.get_header(path)
+        I0,Q0,Fs,actual_temp,kid_number,input_att,didf_p,dqdf_p,f0 = self.get_header_time_stream(path)
 
         if check == False:
             didf = didf_p
@@ -145,28 +153,24 @@ class dataRed():
 
         step = 1/Fs
         I_old,Q_old = self.get_IQ_data_homo(path)
-        
+
         time = np.arange(0,step*len(I_old[0]),step)
-        
+
         I = []
         Q = []
 
         if cosRayFlag == True:
             # Remove Cosmic Ray
             cos_ray = remCosRay()
-            for i in range(len(I_old)): 
+            for i in range(len(I_old)):
 
                 time,n_I,flagRm_I = cos_ray.findCosmicRay(time,I_old[i],sigma)
-                
+
                 time,n_Q,flagRm_Q = cos_ray.findCosmicRay(time,Q_old[i],sigma)
 
                 if flagRm_I == False and flagRm_Q == False:
                     I.append(n_I)
-                    Q.append(n_Q)  
-
-        #print "**Rayos cósmicos***"
-        #print len(I_old) - len(I)
-        #print "**********************"
+                    Q.append(n_Q)
 
         else:
             I = I_old
@@ -179,36 +183,69 @@ class dataRed():
         df_avg = np.average(df,axis=0)
         I_avg = np.average(I,axis=0)
         Q_avg = np.average(Q,axis=0)
-        time = np.arange(0,step*len(I_avg),step)
+
+        time = np.linspace(0,step*len(I_avg),len(I_avg))
 
         return freqs, psd, psd_mean, time, I_avg, Q_avg, df_avg, kid_number, actual_temp, input_att, I,Q
 
-    def get_all_data(self, path, cosRayFlag):
+    def validate_folder(self,path):
+        if len(os.listdir(path) ) == 0:
+            return False
+        else:
+            return True
 
-        try:
-            sweep_path, sweep_hr_path, ONTemp, OFFTemp = self.get_each_path(path) 
-            
-            path_off_up, path_off_low = self.split_array(OFFTemp)
-            path_on_up, path_on_low = self.split_array(ONTemp)
+    def get_sweep_psd_data(self, path, cosRayFlag):
 
+        sweep_path, _, ONTemp, OFFTemp = self.get_each_path(path)
+
+        content_flags = [sweep_path is not "",[True]*len(ONTemp),[True]*len(OFFTemp)]
+
+        freq, sweep_i,sweep_q = [],[],[]
+        freq_hr, sweep_i_hr, sweep_q_hr = [],[],[]
+        psd, psd_low = [],[]
+        psd_OFF, psd_low_OFF = [],[]
+        f0_fits = 0
+        params = []
+
+        if content_flags[0]:
             freq, sweep_i, sweep_q = self.get_vna_sweep(os.path.join(path, sweep_path))
-            freq_hr, sweep_i_hr, sweep_q_hr = self.get_vna_sweep(os.path.join(path, sweep_hr_path))
+            f0_fits,actual_temp,kid_number,input_att = self.get_params_from_header(os.path.join(path, sweep_path))
+            I0,Q0,didf,dqdf,check = self.get_vna_sweep_parameters(freq,sweep_i,sweep_q,f0_fits)
+            params = [actual_temp,kid_number,input_att]
 
-            f0_fits = self.get_header(os.path.join(path, path_on_up))[8]
-            mag,f0,I0,Q0,didf,dqdf,check = self.get_vna_sweep_parameters(freq,sweep_i,sweep_q,f0_fits)
+        if len(content_flags[1]) > 0:
+            if len(content_flags[1]) > 1:
+                path_on_up, path_on_low = self.split_array(ONTemp)
+
+                #print "PSD LOW ON"
+                psd_low = self.get_homodyne_psd(os.path.join(path, path_on_low),didf,dqdf,check,5,cosRayFlag)
+            elif len(content_flags[1]) == 1:
+                path_on_up = ONTemp[0][0]
 
             #print "PSD HIGH ON"
             psd = self.get_homodyne_psd(os.path.join(path, path_on_up),didf,dqdf,check,5,cosRayFlag)
-            #print "PSD LOW ON"
-            psd_low = self.get_homodyne_psd(os.path.join(path, path_on_low),didf,dqdf,check,5,cosRayFlag)
+
+        if len(content_flags[2]) > 0:
+            if len(content_flags[2]) > 1:
+                path_off_up, path_off_low = self.split_array(OFFTemp)
+
+                #print "PSD LOW OFF"
+                psd_low_OFF = self.get_homodyne_psd(os.path.join(path, path_off_low),didf,dqdf,check,5,cosRayFlag)
+            elif len(content_flags[2]) == 1:
+                path_off_up = OFFTemp[0][0]
+
             #print "PSD HIGH OFF"
             psd_OFF = self.get_homodyne_psd(os.path.join(path, path_off_up),didf,dqdf,check,5,cosRayFlag)
-            #print "PSD LOW OFF"
-            psd_low_OFF = self.get_homodyne_psd(os.path.join(path, path_off_low),didf,dqdf,check,5,cosRayFlag)
-            
-            return freq, sweep_i, sweep_q, freq_hr, sweep_i_hr, sweep_q_hr,  psd, psd_low, psd_OFF, psd_low_OFF, f0, f0_fits                
-        except:
-            return -1
+
+        return freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_fits,params
+
+    def get_sweep_hr(self, path):
+        _,sweep_hr_path,_,_ = self.get_each_path(path)
+
+        assert sweep_hr_path != "", "File of sweep at high resolution not founded"
+        freq_hr, sweep_i_hr, sweep_q_hr = self.get_vna_sweep(os.path.join(path, sweep_hr_path))
+
+        return freq_hr, sweep_i_hr, sweep_q_hr
 
     # Choose the newest version of the fits files
     def split_array(self, array):
@@ -218,16 +255,12 @@ class dataRed():
         a2 = []
 
         ref = array[0][1]
-        
+
         for m in array:
             if m[1] == ref:
                 a1.append(m)
             else:
                 a2.append(m)
-
-        #print "***"
-        #print a1,a2
-        #print "***"
 
         if a1[0][1] >= a2[0][1]:
             up = a1
@@ -254,7 +287,9 @@ class dataRed():
     def get_each_path(self, diry):
 
         files = os.listdir(diry)
+
         sweep_path = ""
+        sweep_hr_path = ""
         ONTemp = []
         OFFTemp = []
 
@@ -263,7 +298,7 @@ class dataRed():
             if k == "sweep.fits":
                 sweep_path = i
             elif k == "sweep_hr.fits":
-                sweep_hr_path = i 
+                sweep_hr_path = i
             else:
                 freq = ''
                 mode = ''
