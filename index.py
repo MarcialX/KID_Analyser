@@ -4632,22 +4632,26 @@ class MainWindow(QtGui.QMainWindow):
         pathHeader = QFileDialog.getOpenFileName(self, "Select fits file")
         self.ui.saveHeaderFile.setText(str(pathHeader))
 
-        hdul = fits.open(str(pathHeader))
-        hdr = hdul[1].header
+        try:
+            hdul = fits.open(str(pathHeader))
+            hdr = hdul[1].header
 
-        self.ui.tableHeader.setRowCount(len(hdr))
+            self.ui.tableHeader.setRowCount(len(hdr))
 
-        # Filling the table
-        keysH = hdr.keys()
-        valuesH = hdr.values()
+            # Filling the table
+            keysH = hdr.keys()
+            valuesH = hdr.values()
 
-        for i in range(len(keysH)):
-            # Set table
-            #print keysH[i], valuesH[i]
-            self.ui.tableHeader.setItem(i,0, QTableWidgetItem(keysH[i]))
-            self.ui.tableHeader.setItem(i,1, QTableWidgetItem(str(valuesH[i])))
+            for i in range(len(keysH)):
+                # Set table
+                #print keysH[i], valuesH[i]
+                self.ui.tableHeader.setItem(i,0, QTableWidgetItem(keysH[i]))
+                self.ui.tableHeader.setItem(i,1, QTableWidgetItem(str(valuesH[i])))
 
-        self.ui.tableHeader.resizeRowsToContents()
+            self.ui.tableHeader.resizeRowsToContents()
+        except:
+            self.messageBox("Error reading header file","Format or extension invalid, check file selected","error")
+            return
 
     # Fill with default values
     def autoFillNoise(self,event):
