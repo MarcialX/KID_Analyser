@@ -28,6 +28,7 @@ from numpy import fft
 from dataRed import dataRed
 from getQ import get_Q_factor
 from fitting_bounds import fitting_resonators
+from fitting_phys_params import fit_spectral_noise
 
 from enableThread import enableWindow
 from loadThread import loadThread
@@ -369,12 +370,18 @@ class MainWindow(QtGui.QMainWindow):
         # Stadistics
         self.ui.applyBtn.mousePressEvent = self.apply_stad
         # - - - - - - - - - -
-        # Maps
+        # Noise params
         # - - - - - - - - - -
+        # Adjust initial params automatically
         self.ui.autoInitialButton.mousePressEvent = self.autoFillNoise
+        # Fit noise curves
+        #self.ui.fitNoiseBtn.mousePressEvent = self.fitNoise
 
         # Class to reduce data
         self.dataRedtn = dataRed()
+
+        # Class to fit PSD noise
+        self.fit_PSD_curve = fit_spectral_noise()
 
         # Classes to get Q factor
         self.getQ = get_Q_factor()
@@ -670,15 +677,11 @@ class MainWindow(QtGui.QMainWindow):
                     self.I_vna[m] = I
                     self.Q_vna[m] = Q
                     self.freq_Q[m] = freq
-
-                    print "Qué onda! creando VNA o ke ase?"
                     self.notEmptyVNA[m] = True
 
                 else:
                     mag_norm  = np.sqrt(self.I_vna[m]**2 + self.Q_vna[m]**2)
                     freq = self.freq_Q[m]
-
-                    print "Leyendo VNA o k ase?"
 
                 # Remove Continuos
                 if self.ui.remContBtn.isChecked():
@@ -2646,6 +2649,37 @@ class MainWindow(QtGui.QMainWindow):
                                 c2 = y[0].get_color()
 
                             self.f1.semilogx(psdFreqOFF,psdOFF, color=c2,marker=p, alpha=alpha_on)
+
+                            if self.ui.fitNoiseBtn.isChecked():
+                                try:
+                                    if self.ui.nonlinearBtn.isChecked() or self.ui.actionNonlinearity.isChecked():
+                                        fit_fil = fit[0]
+                                    else:
+                                        fit_fil = fit[1]
+
+                                    psdON_val = 10**(psdON/10)
+                                    gr_noise,tau_qp,amp_noise,tls_a,tls_b, fit_PSD = self.fitNoise(psdFreqON,psdON_val,f0_meas,fit_fil[0][1])
+
+                                    gr_noise = 10*np.log10(gr_noise)
+                                    amp_noise = 10*np.log10(amp_noise)
+                                    tls = tls_a*psdFreqON**tls_b / (1.+(2*np.pi*psdFreqON*fit_fil[0][1]/np.pi/f0_meas)**2)
+
+                                    tls = 10*np.log10(tls)
+                                    grPlot = [gr_noise]*len(psdFreqON)
+                                    ampPlot = [amp_noise]*len(psdFreqON)
+                                    fit_PSD = 10*np.log10(fit_PSD)
+
+                                    self.f1.semilogx(psdFreqON, fit_PSD, 'r--', alpha=alpha)
+                                    self.f1.semilogx(psdFreqON, tls, 'b--', alpha=alpha)
+                                    self.f1.semilogx(psdFreqON, grPlot, 'g--', alpha=alpha)
+                                    self.f1.semilogx(psdFreqON, ampPlot, 'c--', alpha=alpha)
+
+                                    self.f1.annotate(r"$GR \ Noise = " + str(np.round(gr_noise,2)) + " dB, t_{qp} = " + str(np.round(tau_qp*1e6,2)) + "\mu s$",xy=(psdFreqON[0],grPlot[0]))
+                                    self.f1.annotate(r"$Amplifier \ Noise = " + str(np.round(amp_noise,2)) + " dB$",xy=(psdFreqON[0],ampPlot[0]))
+                                    self.f1.annotate(r"$TLS \ Noise = " + str(np.round(tls_a,2)) + "f^{" + str(np.round(tls_b,2)) + "} dB$",xy=(psdFreqON[0],tls[0]))
+                                except:
+                                    self.ui.statusbar.showMessage("Error fitting the noise curve")
+                                    self.ui.statusText.append("<font color=\"red\">Error fitting noise curve. Check the initial parameters</font>")
 
                             #self.f1.legend(loc='best')
                             self.f1.set_title(r"$Noise \ low \ and \ high \ resolution$")
@@ -4680,6 +4714,56 @@ class MainWindow(QtGui.QMainWindow):
             self.ui.sigmaValue.setText("Default")
         else:
             self.ui.sigmaValue.setText(str(sigmaNoise))
+
+    def fitNoise(self, freq, PSD, f0, Qr):
+        #Read the params
+        try:
+            # G-R Noise
+            grNoise = self.ui.grNoiseValue.text()
+            if grNoise == "Default":
+                grNoise = None
+            else:
+                grNoise = float(grNoise)
+            # Quasiparticle lifetime
+            tqp = self.ui.tqpValue.text()
+            if tqp == "Default":
+                tqp = None
+            else:
+                tqp = float(tqp)
+            # Amplifier Noise
+            ampNoise = self.ui.ampNoiseValue.text()
+            if ampNoise == "Default":
+                ampNoise = None
+            else:
+                ampNoise = float(ampNoise)
+            # TLS constant
+            aTLS = self.ui.aTLSValue.text()
+            if aTLS == "Default":
+                aTLS = None
+            else:
+                aTLS = float(aTLS)
+            # TLS order
+            bTLS = self.ui.bTLSValue.text()
+            if bTLS == "Default":
+                bTLS = None
+            else:
+                bTLS = float(bTLS)
+            # Sigma
+            sigma = self.ui.sigmaValue.text()
+            if sigma == "Default":
+                sigma = None
+            else:
+                sigma = float(bTLS)
+        except:
+            self.messageBox("Error fitting Noise Plot","Parameters invalid, check that the parameters are correct","error")
+            return
+
+        gr_noise,tau_qp,amp_noise,tls_a,tls_b,fit_PSD = self.fit_PSD_curve.fit_kid_psd(freq, PSD, f0, Qr,
+            gr_guess=grNoise, tauqp_guess=tqp, amp_guess=ampNoise, tlsa_guess=aTLS,  tlsb_guess=bTLS,
+            gr_min=0,      tauqp_min=0,      amp_min=0,      tlsa_min=-np.inf, tlsb_min=bTLS - 0.001,
+            gr_max=np.inf, tauqp_max=np.inf, amp_max=np.inf, tlsa_max=np.inf,  tlsb_max=bTLS + 0.001, sigma = sigma)
+
+        return gr_noise,tau_qp,amp_noise,tls_a,tls_b,fit_PSD
 
 #Ejecución del programa
 app = QtGui.QApplication(sys.argv)

@@ -10,28 +10,29 @@ and NEP g-r.
 import numpy as np
 from scipy.optimize import curve_fit
 
+import matplotlib.pyplot as plt
+
 class fit_spectral_noise():
 
     """
     Get the model which match the PSD noise.
     A hundred percent based in PhD Sam Rowe code
     """
-    def combined_model(self,freqs,gr_noise,tau_qp,amp_noise,tls_a,tls_b):
-        # Ruido Generación-Recombinación
-        gr = gr_noise/(1.+(2*np.pi*freqs*tau_qp)**2) / (1.+(2*np.pi*freqs*kid_qr/np.pi/kid_f0)**2)
-        # Ruido TLS
-        tls = tls_a*freqs**tls_b / (1.+(2*np.pi*freqs*kid_qr/np.pi/kid_f0)**2)
-        # Ruido del amplificador
-        amp = amp_noise
-
-        # Ruido Total
-        return gr + tls + amp
-
     def fit_kid_psd(self,psd_freqs, psd_df, kid_f0, kid_qr,
                     gr_guess=None, tauqp_guess=None, amp_guess=None, tlsa_guess=None,  tlsb_guess=-1.5,
                     gr_min=0,      tauqp_min=0,      amp_min=0,      tlsa_min=-np.inf, tlsb_min=-1.501,
                     gr_max=np.inf, tauqp_max=np.inf, amp_max=np.inf, tlsa_max=np.inf,  tlsb_max=-1.499,
                     sigma = None):
+
+        def combined_model(freqs,gr_noise,tau_qp,amp_noise,tls_a,tls_b):
+            # Ruido Generación-Recombinación
+            gr = gr_noise/(1.+(2*np.pi*freqs*tau_qp)**2) / (1.+(2*np.pi*freqs*kid_qr/np.pi/kid_f0)**2)
+            # Ruido TLS
+            tls = tls_a*freqs**tls_b / (1.+(2*np.pi*freqs*kid_qr/np.pi/kid_f0)**2)
+            # Ruido del amplificador
+            amp = amp_noise
+            # Ruido Total
+            return gr + tls + amp
 
         if gr_guess is None:
             gr_guess = 0.01
@@ -49,12 +50,14 @@ class fit_spectral_noise():
                             [gr_max, tauqp_max, amp_max, tlsa_max,  tlsb_max ]])
 
         if sigma is None:
-            sigma = (1 / abs(gradient(psd_freqs)))
+            sigma = (1 / abs(np.gradient(psd_freqs)))
 
-        pval, pcov = curve_fit(self.combined_model, psd_freqs, psd_df, guess, bounds=bounds, sigma=sigma)
+        pval, pcov = curve_fit(combined_model, psd_freqs, psd_df, guess, bounds=bounds, sigma=sigma)
         (gr_noise,tau_qp,amp_noise,tls_a,tls_b) = pval
 
-        return (gr_noise,tau_qp,amp_noise,tls_a,tls_b,f0,qr)
+        fit_PSD = combined_model(psd_freqs,gr_noise,tau_qp,amp_noise,tls_a,tls_b)
+
+        return gr_noise,tau_qp,amp_noise,tls_a,tls_b,fit_PSD
 
     def spectral_noise(self, freq, Nqp, tqp):
         """
