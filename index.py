@@ -3125,7 +3125,10 @@ class MainWindow(QtGui.QMainWindow):
 
             assert self.dataRedtn.validate_folder(path), "Directory empty!"
 
-            freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_fits, params = self.dataRedtn.get_sweep_psd_data(path,self.ui.actionCosRay.isChecked())
+            try:
+                freq, sweep_i, sweep_q, psd, psd_low, psd_OFF, psd_low_OFF, f0_fits, params = self.dataRedtn.get_sweep_psd_data(path,self.ui.actionCosRay.isChecked())
+            except:
+                assert False, "Files are missing or cosmic ray filter suppress all the time streams."
 
             assert freq != [], "Sweep file is missing!"
 
