@@ -298,6 +298,8 @@ class MainWindow(QtGui.QMainWindow):
         # Get Q, Qi, Qc and Nonlinearity
         self.ui.getQBtn.mousePressEvent = self.getQi_Qc
         self.ui.plotQBtn.mousePressEvent = self.plotQ_shapes
+        self.ui.deleteQFactor.mousePressEvent = self.refreshQFactors
+
         self.ui.actionNonlinearity.triggered.connect(self.nonlinear_active_bar)
         self.ui.nonlinearBtn.clicked.connect(self.nonlinear_active_btn)
         # Functions to select/unselect
@@ -451,6 +453,10 @@ class MainWindow(QtGui.QMainWindow):
         self.aTLS = None
         self.bTLS = -1.5
         self.sigmaNoise = None
+
+        self.pastInd = []
+        self.safeAcumQ = []
+        self.safeFit = []
 
         self.updateNoiseText(self.grNoise,self.tqpLifeTime,self.ampNoise,self.aTLS,self.bTLS,self.sigmaNoise)
 
@@ -842,6 +848,7 @@ class MainWindow(QtGui.QMainWindow):
         if self.acumQ != []:
             m = 0
             n = 0
+
             for point in self.acumQ:
                 f0 = point[0]
                 Qr = point[1]
@@ -889,6 +896,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.f1.set_xlabel(r'$\mathbf{f_0}$')
 
                 m = m + 1
+
                 if m >= len(self.ind[n]):
                     m = 0
                     n = n + 1
@@ -948,6 +956,15 @@ class MainWindow(QtGui.QMainWindow):
         else:
             self.messageBox("Plotting Q","Length of Q array has to be more than 0","error")
 
+    # Refresh Q Factors
+    def refreshQFactors(self,event):
+        """
+            Refresh the quality factor
+        """
+        self.safeAcumQ = []
+        self.safeFit = []
+        self.pastInd = []
+
     # Fit S21 curves
     def getQi_Qc(self,event):
         """
@@ -958,91 +975,149 @@ class MainWindow(QtGui.QMainWindow):
 
         try:
             if self.flag_ind == True or len(self.ind) > 0:
+                auxAcumQ = []
+                auxFit = []
+                for i in range(len(self.ind)):
+                    auxAcumQ.append(np.zeros((len(self.ind[i]),6)))
+                    auxFit.append([None]*len(self.ind[i]))
+
+                for i in range(len(self.ind)):
+                    for j in range(len(self.ind[i])):
+                        try:
+                            auxAcumQ[i][j] = self.safeAcumQ[i][j]
+                            auxFit[i][j] = self.safeFit[i][j]
+                        except:
+                            pass
+                runFlags = [True]*len(self.ind)
+
+                if self.pastInd != []:
+                    # Cuando agrego nuevos elementos
+                    # Suponiendo que los nuevos indices siempre son mayores
+                    for d in range(len(self.pastInd)):
+                        runFlags[d] = False
+
+                    for ind in range(len(self.pastInd)):
+                        if list(self.pastInd[ind]) != list(self.ind[ind]):
+                            runFlags[ind] = True
+
+                #current_device = self.ui.editSweepBox.value()-1
+
+                """
+                if self.ui.addQualityFactor.isChecked() == False or len(self.ind[current_device]) < self.prevAcum:
+                    self.prevAcum = len(self.ind[current_device])
+                    BC = 0
+                else:
+                    BC = self.prevAcum
+                    self.prevAcum = len(self.ind[current_device])
+                """
+
                 for j in range(len(self.ind)):
-                    # Bandwidth frequency
-                    bw = self.ui.bwRes.value()
-                    step = self.freq_Q[j][1] - self.freq_Q[j][0]
-                    bw_ind = int(1.0e3*bw/step)/2
+                    if runFlags[j]:
+                        # Bandwidth frequency
+                        bw = self.ui.bwRes.value()
+                        step = self.freq_Q[j][1] - self.freq_Q[j][0]
+                        bw_ind = int(1.0e3*bw/step)/2
 
-                    approx = self.ui.approxQrBtn.value()
+                        approx = self.ui.approxQrBtn.value()
 
-                    S21_cplx = self.I_vna[j] + 1j*self.Q_vna[j]
+                        S21_cplx = self.I_vna[j] + 1j*self.Q_vna[j]
 
-                    if self.ui.addQualityFactor.isChecked() == False or len(self.ind[j]) < self.prevAcum:
-                        self.prevAcum = len(self.ind[j])
-                        self.acumQ = []
-                        self.fit_curve = []
-                        BC = 0
-                    else:
-                        BC = self.prevAcum
-                        self.prevAcum = len(self.ind[j])
+                        activateQ = False
+                        for i in range(0,len(self.ind[j])):
 
-                    for i in range(BC,len(self.ind[j])):
-                        threshold_Qr = 250
-                        initial_approx = approx
-                        errQr = threshold_Qr + 1
+                            if j >= len(self.pastInd):
+                                activateQ = True
+                            elif not self.ind[j][i] in self.pastInd[j]:
+                                activateQ = True
+                            else:
+                                activateQ = False
 
-                        if self.ui.nonlinearBtn.isChecked():
-                            if self.ui.adaptiveQButton.isChecked():
-                                tries = 0
-                                self.ui.statusText.append("<b>Fitting Q Nonlinear. Adaptative</b>")
+                            if activateQ:
+                                threshold_Qr = 250
+                                initial_approx = approx
+                                errQr = threshold_Qr + 1
 
-                                while errQr > threshold_Qr:
-                                    try:
-                                        potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=initial_approx, nonlinear=True)
-                                    except Exception as e:
-                                        errQr = threshold_Qr
-                                        self.ui.statusText.append("<font color=\"red\">Could not be achieved the best fit</font>")
-                                    errQr = perr[1]
-                                    self.ui.statusText.append("<font color=\"cyan\">Initial Approx = " + str(initial_approx) + "</font>")
+                                if self.ui.nonlinearBtn.isChecked():
+                                    if self.ui.adaptiveQButton.isChecked():
+                                        tries = 0
+                                        self.ui.statusText.append("<b>Fitting Q Nonlinear. Adaptative</b>")
+
+                                        while errQr > threshold_Qr:
+                                            try:
+                                                potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=initial_approx, nonlinear=True)
+                                            except Exception as e:
+                                                errQr = threshold_Qr
+                                                self.ui.statusText.append("<font color=\"red\">Could not be achieved the best fit</font>")
+                                            errQr = perr[1]
+                                            self.ui.statusText.append("<font color=\"cyan\">Initial Approx = " + str(initial_approx) + "</font>")
+                                            self.ui.statusText.append("<font color=\"cyan\">Q error = " + str(np.round(perr[1],2)) + "</font>")
+
+                                            initial_approx += 2500
+                                            tries += 1
+                                            if tries > 10:
+                                                self.ui.statusText.append("<font color=\"red\">Number of tries achieved. No satisfactory Q was fitted</font>")
+                                                break
+                                    else:
+                                        self.ui.statusText.append("<b>Fitting Q Nonlinear</b>")
+                                        potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=approx, nonlinear=True)
+                                        self.ui.statusText.append("<font color=\"cyan\">Q error = " + str(np.round(perr[1],2)) + "</font>")
+                                else:
+                                    self.ui.statusText.append("<b>Fitting Q</b>")
+                                    potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=approx, nonlinear=False)
                                     self.ui.statusText.append("<font color=\"cyan\">Q error = " + str(np.round(perr[1],2)) + "</font>")
 
-                                    initial_approx += 2500
-                                    tries += 1
-                                    if tries > 10:
-                                        self.ui.statusText.append("<font color=\"red\">Number of tries achieved. No satisfactory Q was fitted</font>")
-                                        break
+                                auxFit[j][i] = fit_curve
+                                #self.fit_curve.append(fit_curve)
+
+                                if self.ui.ylog.isChecked():
+                                    fit_curve = 20*np.log10(fit_curve)
+
+                                auxAcumQ[j][i] = potp
+                                #array([f0, Qr, Qc, Qi, A, a])
+
+                                q_msg = r"$"+str(round(potp[0]/1e6,4))+"MHz$"
+
+                                if self.ui.actionQ_Factor.isChecked():
+                                    q_msg = q_msg + "\n$Q_r="+str(round(potp[1],2))+"$"
+
+                                if self.ui.actionGet_Qi.isChecked():
+                                    q_msg = q_msg + "\n$Q_i="+str(round(potp[3],2))+"$"
+
+                                if self.ui.actionGet_Qc.isChecked():
+                                    q_msg = q_msg + "\n$Q_c="+str(round(potp[2],2))+"$"
+
+                                try:
+                                    self.f1.annotate(q_msg,xy=(potp[0],np.min(fit_curve)))
+                                    self.f1.plot(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],fit_curve,'--')
+                                except:
+                                    self.messageBox("Error","Unexpected error. Be sure that Add button is unselected and Fit the curves again.","error")
+
                             else:
-                                self.ui.statusText.append("<b>Fitting Q Nonlinear</b>")
-                                potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=approx, nonlinear=True)
-                                self.ui.statusText.append("<font color=\"cyan\">Q error = " + str(np.round(perr[1],2)) + "</font>")
-                        else:
-                            self.ui.statusText.append("<b>Fitting Q</b>")
-                            potp,perr,fit_curve = self.fit_S21.fitmags21(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],S21_cplx[int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind], approxQr=approx, nonlinear=False)
-                            self.ui.statusText.append("<font color=\"cyan\">Q error = " + str(np.round(perr[1],2)) + "</font>")
+                                indexQ = np.where(self.pastInd[j] == self.ind[j][i])[0][0]
+                                auxAcumQ[j][i] = self.safeAcumQ[j][indexQ]
+                                auxFit[j][i] = self.safeFit[j][indexQ]
 
-                        self.fit_curve.append(fit_curve)
-
-                        if self.ui.ylog.isChecked():
-                            fit_curve = 20*np.log10(fit_curve)
-
-                        self.acumQ.append(potp)
-                        #array([f0, Qr, Qc, Qi, A, a])
-
-                        q_msg = r"$"+str(round(potp[0]/1e6,4))+"MHz$"
-
-                        if self.ui.actionQ_Factor.isChecked():
-                            q_msg = q_msg + "\n$Q_r="+str(round(potp[1],2))+"$"
-
-                        if self.ui.actionGet_Qi.isChecked():
-                            q_msg = q_msg + "\n$Q_i="+str(round(potp[3],2))+"$"
-
-                        if self.ui.actionGet_Qc.isChecked():
-                            q_msg = q_msg + "\n$Q_c="+str(round(potp[2],2))+"$"
-
-                        try:
-                            self.f1.annotate(q_msg,xy=(potp[0],np.min(fit_curve)))
-                            self.f1.plot(self.freq_Q[j][int(self.ind[j][i]) - bw_ind:int(self.ind[j][i]) + bw_ind],fit_curve,'--')
-                        except:
-                            self.messageBox("Error","Unexpected error. Be sure that Add button is unselected and Fit the curves again.","error")
-
-                    self.f1.figure.canvas.draw()
+                self.f1.figure.canvas.draw()
             else:
                 self.messageBox("Q fit","There is not VNA resonators. Get the resonators first","error")
 
+            self.safeAcumQ = auxAcumQ
+            self.pastInd = [m for m in self.ind]
+
+            self.safeFit = auxFit
+
+            self.acumQ = []
+            for i in auxAcumQ:
+                for j in i:
+                    self.acumQ.append(j)
+
+            self.fit_curve = []
+            for f in auxFit:
+                for i in f:
+                    self.fit_curve.append(i)
+
         except Exception as e:
             self.messageBox("Q fit", "There is an error in the quality factor calculation, have a look of the parameters."+str(e),"error")
-            self.prevAcum = 0
 
         self.ui.setEnabled(True)
 
@@ -1411,6 +1486,11 @@ class MainWindow(QtGui.QMainWindow):
             Qc.append(q[2])
             Qi.append(q[3])
             a.append(q[5])
+
+        """
+        Qr = [40651,34210,25738,31563,52630,57188,40302,41479,46320,37252,35090,41185,
+             54304,31769,29040,40012]
+        """
 
         # Sort the array
         auxQr,auxQi,auxQc,auxNon,auxf0 = [],[],[],[],[]
@@ -3434,7 +3514,7 @@ class MainWindow(QtGui.QMainWindow):
         data = "<b>F<sub>min</sub> = </b>" + str(fmin/1e6) + "<b> MHz</b><br>" + "<b>F<sub>max</sub> = </b>" + str(fmax/1e6) + "<b> MHz</b><br>" + "<b>BW = </b>" + str(bw/1e6) + "<b> MHz</b><br>" + "<b>Res = </b>" + str(res) + "<b> Hz</b>"
 
         if self.ui.nonlinearBtn.isChecked() or self.ui.actionNonlinearity.isChecked():
-            fit = "<b>Q = </b>" + str(int(fit[0][0][1])) + "<br><b>F<sub>0</sub> = </b>" + str(round(fit[0][0][0]/1e6,2)) + "<b> MHz</b><br><b>Q<sub>i</sub> = </b>" + str(int(fit[0][0][2])) + "<br><b>Q<sub>c</sub> = </b>" + str(int(fit[0][0][3]))
+            fit = "<b>Q = </b>" + str(int(fit[0][0][1])) + "<br><b>F<sub>0</sub> = </b>" + str(round(fit[0][0][0]/1e6,2)) + "<b> MHz</b><br><b>Q<sub>i</sub> = </b>" + str(int(fit[0][0][2])) + "<br><b>Q<sub>c</sub> = </b>" + str(int(fit[0][0][3])) + "<br><b>Nonlinear = </b>" + str(np.round(fit[0][0][5],2))
         else:
             fit = "<b>Q = </b>" + str(int(fit[1][0][1])) + "<br><b>F<sub>0</sub> = </b>" + str(round(fit[1][0][0]/1e6,2)) + "<b> MHz</b><br><b>Q<sub>i</sub> = </b>" + str(int(fit[1][0][2])) + "<br><b>Q<sub>c</sub> = </b>" + str(int(fit[1][0][3]))
 
@@ -4381,6 +4461,8 @@ class MainWindow(QtGui.QMainWindow):
                         self.vlines[i].append(line)
                         self.f1.plot(resLine,mid_y_axis,'bo')
                         self.f1.annotate(r"$"+str(resLine/1e6)+"MHz$",xy=(resLine,mid_y_axis))
+
+                        self.ind[i] = np.sort(self.ind[i])
 
                     self.f1.figure.canvas.draw()
 

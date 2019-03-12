@@ -742,8 +742,8 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>100</width>
-         <height>30</height>
+         <width>98</width>
+         <height>28</height>
         </rect>
        </property>
        <attribute name="label">
@@ -951,8 +951,8 @@ QWidget ::checked{
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>100</width>
-         <height>30</height>
+         <width>98</width>
+         <height>28</height>
         </rect>
        </property>
        <attribute name="label">
@@ -1648,7 +1648,7 @@ QWidget ::checked{
           <string>Adaptative</string>
          </property>
         </widget>
-        <widget class="QPushButton" name="addQualityFactor">
+        <widget class="QPushButton" name="deleteQFactor">
          <property name="geometry">
           <rect>
            <x>140</x>
@@ -1658,7 +1658,7 @@ QWidget ::checked{
           </rect>
          </property>
          <property name="styleSheet">
-          <string notr="true">QWidget ::checked{
+          <string notr="true">QWidget ::hover{
 	background-color: gray
 }</string>
          </property>
@@ -1667,7 +1667,7 @@ QWidget ::checked{
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../resources/add.png</normaloff>../resources/add.png</iconset>
+           <normaloff>../resources/eraser.png</normaloff>../resources/eraser.png</iconset>
          </property>
          <property name="iconSize">
           <size>
@@ -1682,22 +1682,6 @@ QWidget ::checked{
           <bool>false</bool>
          </property>
         </widget>
-        <zorder>getQBtn</zorder>
-        <zorder>resonator_label_QiQc</zorder>
-        <zorder>bandwidth_label_QiQc</zorder>
-        <zorder>bwRes</zorder>
-        <zorder>kHz_label_QiQc</zorder>
-        <zorder>nonlinear_label_QiQc</zorder>
-        <zorder>nonlinearBtn</zorder>
-        <zorder>approxQrBtn</zorder>
-        <zorder>initialQr_label_QiQc</zorder>
-        <zorder>editSweep_label_QiQc</zorder>
-        <zorder>editSweepBox</zorder>
-        <zorder>plotQBtn</zorder>
-        <zorder>adaptiveQButton</zorder>
-        <zorder>adaptative_label_QiQc</zorder>
-        <zorder>fnoteBtn_2</zorder>
-        <zorder>addQualityFactor</zorder>
        </widget>
       </widget>
      </widget>
