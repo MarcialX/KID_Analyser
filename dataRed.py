@@ -106,11 +106,24 @@ class dataRed():
         I0 = I[f0_ind]
         Q0 = Q[f0_ind]
 
+        df = freqs[1]-freqs[0]
+
         try:
             #np.diff::::didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
             #np.gradient:::: (In+1 - In-1)/2df
-            didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
-            dqdf = (Q[f0_ind + 1]-Q[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+            #didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+            #dqdf = (Q[f0_ind + 1]-Q[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+
+            # Primero un filtro a la señal
+            I = savgol_filter(I, 31, 3)
+            Q = savgol_filter(Q, 31, 3)
+
+            didf = np.gradient(I,freqs)[f0_ind]
+            dqdf = np.gradient(Q,freqs)[f0_ind]
+
+            #didf = (I[f0_ind + 1]-I[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+            #dqdf = (Q[f0_ind + 1]-Q[f0_ind])/(freqs[f0_ind + 1]-freqs[f0_ind])
+
             check = True
         except:
             didf = 0
@@ -121,7 +134,7 @@ class dataRed():
 
     def df(self, I0,Q0,didf,dqdf,I,Q):
         vel = (didf**2)+(dqdf**2)
-        df = [  ( ( I0-I[i] ) * didf) + ( ( Q0-Q[i]) * dqdf ) / vel for i in range(len(I))  ]
+        df = [  ((( I0-I[i] ) * didf) + ( ( Q0-Q[i]) * dqdf )) / vel for i in range(len(I))  ]
         return df, vel
 
     def get_IQ_data_homo(self, path):

@@ -2248,12 +2248,15 @@ class MainWindow(QtGui.QMainWindow):
         #---Speed---
         self.f1 = self.fig1.add_subplot(312)
 
-        di_df = np.diff(sweep_i)/np.diff(freq)
-        dq_df = np.diff(sweep_q)/np.diff(freq)
+        di_df = np.gradient(sweep_i,freq)
+        dq_df = np.gradient(sweep_q,freq)
         speed = np.sqrt(di_df**2 + dq_df**2)
 
-        z = self.f1.plot(freq[:-1],speed,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
+        speed_smooth = savgol_filter(speed, 31, 3)
+
+        z = self.f1.plot(freq,speed,c1+p+'-',alpha=alpha,label=r"$"+namePlot[cnt]+"$")
         c3 = z[0].get_color()
+        self.f1.plot(freq,speed_smooth,p+'-',color=c3,alpha=alpha,label=r"$"+namePlot[cnt]+"$")
 
         if self.ui.actionFindResonance.isChecked() or f0_leg == True:
             self.f1.axvline(f0_meas,color='c')
@@ -3533,8 +3536,8 @@ class MainWindow(QtGui.QMainWindow):
         #       A:  Level
         #       a:  Nonlinearity
 
-        threshold_Qr = 250
-        initial_approx = 5.e3
+        threshold_Qr = 100
+        initial_approx = 5.5e3
         errQr = threshold_Qr + 1
 
         if nonlinear:
@@ -3548,7 +3551,7 @@ class MainWindow(QtGui.QMainWindow):
                     self.ui.statusText.append("<font color=\"red\">Could not be achieved the best fit</font>")
                 errQr = perr[1]
                 self.ui.statusText.append("<font color=\"green\">Initial Approx = " + str(initial_approx) + "</font>")
-                initial_approx += 2500
+                initial_approx += 3000
 
                 tries += 1
                 if tries > 10:
